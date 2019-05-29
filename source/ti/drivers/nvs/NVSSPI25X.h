@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,13 +61,18 @@
  *
  *  It is assumed that the SPI flash device used by this driver supports
  *  the byte programmability of the SPIFLASH_PAGE_WRITE command and that
- *  write page size is 256 bytes.
+ *  write page size is 256 bytes. The erase sector and subsector sizes are
+ *  assumed to be 64K and 4K respectively.
  *
- *  The NVS_erase() command assumes that regions with sectorSize = 4096 bytes
- *  are erased using the SPIFLASH_SUBSECTOR_ERASE command (0x20). Otherwise the
- *  SPIFLASH_SECTOR_ERASE command (0xD8) is used to erase the flash sector.
- *  It is up to the user to ensure that each region's sectorSize matches these
- *  sector erase rules.
+ *  The NVS_erase() command will issue a sector or subsector erase command
+ *  based on the input size and offset.
+ *
+ *  The driver must query the SPI flash to ensure that the part is ready before
+ *  commands are issued. If the part responds as busy, the poll function sleeps
+ *  for a number of microseconds determined by the
+ *  #NVSSPI25X_HWAttrs.statusPollDelayUs field. A value of 0 means that the
+ *  driver will continuously poll the external flash until it is ready, which
+ *  may affect other threads ability to execute.
  *
  * ## SPI Interface Management ##
  *
@@ -287,7 +292,8 @@ extern const NVS_FxnTable NVSSPI25X_fxnTable;
  *  };
  *  @endcode
  */
-typedef struct NVSSPI25X_HWAttrs {
+typedef struct
+{
     size_t      regionBaseOffset;   /*!< Offset from base of SPI flash */
     size_t      regionSize;         /*!< The size of the region in bytes */
     size_t      sectorSize;         /*!< Erase sector size */
@@ -304,6 +310,14 @@ typedef struct NVSSPI25X_HWAttrs {
         details.
     */
     uint16_t    spiCsnGpioIndex;
+    /*! @brief External Flash Status Poll Delay
+     *
+     * This field determines how many microseconds the driver waits after
+     * querying the external flash status. Increasing this value can help
+     * mitigate CPU starvation if the external flash is busy for long periods
+     * of time, but may also result in increased latency.
+     */
+    uint32_t    statusPollDelayUs;
 } NVSSPI25X_HWAttrs;
 
 /*
@@ -311,7 +325,8 @@ typedef struct NVSSPI25X_HWAttrs {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct NVSSPI25X_Object {
+typedef struct
+{
     bool        opened;             /* Has this region been opened */
     SPI_Handle  spiHandle;
     size_t      sectorBaseMask;

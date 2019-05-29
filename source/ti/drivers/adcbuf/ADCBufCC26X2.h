@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,7 +29,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** ============================================================================
+/*!****************************************************************************
  *  @file       ADCBufCC26X2.h
  *
  *  @brief      ADCBuf driver implementation for a CC26X2 analog-to-digital converter
@@ -262,7 +262,7 @@
  *  Diags_USER1      | basic ADCBuf operations performed    |
  *  Diags_USER2      | detailed ADCBuf operations performed |
  *
- *  ============================================================================
+ ******************************************************************************
  */
 
 #ifndef ti_drivers_adc_adcbufcc26xx__include

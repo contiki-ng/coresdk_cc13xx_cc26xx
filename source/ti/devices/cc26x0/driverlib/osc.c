@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       osc.c
-*  Revised:        2017-09-01 10:21:01 +0200 (Fri, 01 Sep 2017)
-*  Revision:       49677
+*  Revised:        2019-02-14 09:35:31 +0100 (Thu, 14 Feb 2019)
+*  Revision:       54539
 *
 *  Description:    Driver for setting up the system Oscillators
 *
@@ -74,6 +74,7 @@
     #undef  OSC_HPOSCRelativeFrequencyOffsetToRFCoreFormatConvert
     #define OSC_HPOSCRelativeFrequencyOffsetToRFCoreFormatConvert NOROM_OSC_HPOSCRelativeFrequencyOffsetToRFCoreFormatConvert
 #endif
+
 
 //*****************************************************************************
 //
@@ -332,17 +333,20 @@ int32_t
 OSC_HPOSCRelativeFrequencyOffsetGet( int32_t tempDegC )
 {
    // Estimate HPOSC frequency, using temperature and curve fitting parameters
-   uint32_t fitParams = HWREG(FCFG1_BASE + FCFG1_O_FREQ_OFFSET);
+
+   uint32_t fitParams = HWREG( FCFG1_BASE + FCFG1_O_FREQ_OFFSET );
    // Extract the P0,P1,P2 params, and sign extend them via shifting up/down
-   int32_t paramP0 = ((((int32_t) fitParams) << (32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P0_W - FCFG1_FREQ_OFFSET_HPOSC_COMP_P0_S))
-                                             >> (32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P0_W));
-   int32_t paramP1 = ((((int32_t) fitParams) << (32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P1_W - FCFG1_FREQ_OFFSET_HPOSC_COMP_P1_S))
-                                             >> (32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P1_W));
-   int32_t paramP2 = ((((int32_t) fitParams) << (32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P2_W - FCFG1_FREQ_OFFSET_HPOSC_COMP_P2_S))
-                                             >> (32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P2_W));
-   int32_t paramP3 = ((((int32_t) HWREG(FCFG1_BASE + FCFG1_O_MISC_CONF_2))
-                                             << (32 - FCFG1_MISC_CONF_2_HPOSC_COMP_P3_W - FCFG1_MISC_CONF_2_HPOSC_COMP_P3_S))
-                                             >> (32 - FCFG1_MISC_CONF_2_HPOSC_COMP_P3_W));
+   int32_t paramP0 = (((int32_t)( fitParams  << ( 32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P0_W - FCFG1_FREQ_OFFSET_HPOSC_COMP_P0_S )))
+                                             >> ( 32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P0_W ));
+   int32_t paramP1 = (((int32_t)( fitParams  << ( 32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P1_W - FCFG1_FREQ_OFFSET_HPOSC_COMP_P1_S )))
+                                             >> ( 32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P1_W ));
+   int32_t paramP2 = (((int32_t)( fitParams  << ( 32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P2_W - FCFG1_FREQ_OFFSET_HPOSC_COMP_P2_S )))
+                                             >> ( 32 - FCFG1_FREQ_OFFSET_HPOSC_COMP_P2_W ));
+
+   uint32_t fitParP3  = HWREG( FCFG1_BASE + FCFG1_O_MISC_CONF_2 );
+   // Extract the P3 param, and sign extend via shifting up/down
+   int32_t paramP3 = (((int32_t)( fitParP3   << ( 32 - FCFG1_MISC_CONF_2_HPOSC_COMP_P3_W - FCFG1_MISC_CONF_2_HPOSC_COMP_P3_S )))
+                                             >> ( 32 - FCFG1_MISC_CONF_2_HPOSC_COMP_P3_W ));
 
    // Now we can find the HPOSC freq offset, given as a signed variable d, expressed by:
    //

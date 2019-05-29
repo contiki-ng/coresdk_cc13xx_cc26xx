@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,13 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/*!
+/*!****************************************************************************
  * @file ECJPAKE.h
  *
  * @brief   TI Driver for Elliptic Curve Password Authenticated Key Exchange
  *          by Juggling.
  *
- *
+ * @anchor ti_drivers_ECJPAKE_Overview
  * # Overview #
  * Elliptic Curve Password Authenticated Key Exchange by Juggling (EC-JPAKE)
  * is a key agreement scheme that establishes a secure channel over an insecure
@@ -100,6 +100,7 @@
  *  -# Alice and Bob each run K through a mutually agreed upon key derivation
  *    function to compute the symmetric session key.
  *
+ * @anchor ti_drivers_ECJPAKE_Usage
  * # Usage #
  *
  * ## Before starting an ECJPAKE operation #
@@ -191,47 +192,150 @@
  * | Montgomery         | [X, Y]                | 2 * Curve Param Length    |
  * | Edwards            | [X, Y]                | 2 * Curve Param Length    |
  *
- * ## ECJPAKE Driver Configuration #
+ * @anchor ti_drivers_ECJPAKE_Synopsis
+ * ## Synopsis
  *
- * In order to use the ECJPAKE APIs, the application is required
- * to provide device-specific ECJPAKE configuration in the Board.c file.
- * The ECJPAKE driver interface defines a configuration data structure:
- *
+ * @anchor ti_drivers_ECJPAKE_Synopsis_Code
  * @code
- * typedef struct ECJPAKE_Config_ {
- *     void                   *object;
- *     void          const    *hwAttrs;
- * } ECJPAKE_Config;
+ * // Import ECJPAKE Driver definitions
+ * #include <ti/drivers/ECJPAKE.h>
+ *
+ * ECJPAKE_init();
+ *
+ * // Since we are using default ECJPAKE_Params, we just pass in NULL for that parameter.
+ * ecjpakeHandle = ECJPAKE_open(0, NULL);
+
+ * ECJPAKE_Handle handle = ECJPAKE_open(0, &params);
+ *
+ * ECJPAKE_OperationRoundOneGenerateKeys   operationRoundOneGenerateKeys;
+ * ECJPAKE_OperationRoundTwoGenerateKeys   operationRoundTwoGenerateKeys;
+ * ECJPAKE_OperationGenerateZKP            operationGenerateZKP;
+ * ECJPAKE_OperationVerifyZKP              operationVerifyZKP;
+ * ECJPAKE_OperationComputeSharedSecret    operationComputeSharedSecret;
+ *
+ * // Generate my round one keys
+ * ECJPAKE_OperationRoundOneGenerateKeys_init(&operationRoundOneGenerateKeys);
+ * operationRoundOneGenerateKeys.curve             = &ECCParams_NISTP256;
+ * operationRoundOneGenerateKeys.myPrivateKey1     = &myPrivateCryptoKey1;
+ * operationRoundOneGenerateKeys.myPrivateKey2     = &myPrivateCryptoKey2;
+ * operationRoundOneGenerateKeys.myPublicKey1      = &myPublicCryptoKey1;
+ * operationRoundOneGenerateKeys.myPublicKey2      = &myPublicCryptoKey2;
+ * operationRoundOneGenerateKeys.myPrivateV1       = &myPrivateCryptoV1;
+ * operationRoundOneGenerateKeys.myPrivateV2       = &myPrivateCryptoV2;
+ * operationRoundOneGenerateKeys.myPublicV1        = &myPublicCryptoV1;
+ * operationRoundOneGenerateKeys.myPublicV2        = &myPublicCryptoV2;
+ *
+ * result = ECJPAKE_roundOneGenerateKeys(handle, &operationRoundOneGenerateKeys);
+ *
+ * // Generate hashes here
+ *
+ * // generate my round one ZKPs
+ * ECJPAKE_OperationGenerateZKP_init(&operationGenerateZKP);
+ * operationGenerateZKP.curve              = &ECCParams_NISTP256;
+ * operationGenerateZKP.myPrivateKey       = &myPrivateCryptoKey1;
+ * operationGenerateZKP.myPrivateV         = &myPrivateCryptoV1;
+ * operationGenerateZKP.hash               = myHash1;
+ * operationGenerateZKP.r                  = myR1;
+ *
+ * result = ECJPAKE_generateZKP(handle, &operationGenerateZKP);
+ *
+ * ECJPAKE_OperationGenerateZKP_init(&operationGenerateZKP);
+ * operationGenerateZKP.curve              = &ECCParams_NISTP256;
+ * operationGenerateZKP.myPrivateKey       = &myPrivateCryptoKey2;
+ * operationGenerateZKP.myPrivateV         = &myPrivateCryptoV2;
+ * operationGenerateZKP.hash               = myHash2;
+ * operationGenerateZKP.r                  = myR2;
+ *
+ * result = ECJPAKE_generateZKP(handle, &operationGenerateZKP);
+ *
+ * // Do ZKP and key transmission here
+ *
+ * // Verify their round one ZKPs
+ * // Generate their hashes here
+ *
+ * ECJPAKE_OperationVerifyZKP_init(&operationVerifyZKP);
+ * operationVerifyZKP.curve                = &ECCParams_NISTP256;
+ * operationVerifyZKP.theirGenerator       = &nistP256GeneratorCryptoKey;
+ * operationVerifyZKP.theirPublicKey       = &theirPublicCryptoKey1;
+ * operationVerifyZKP.theirPublicV         = &theirPublicCryptoV1;
+ * operationVerifyZKP.hash                 = theirHash1;
+ * operationVerifyZKP.r                    = theirR1;
+ *
+ * result = ECJPAKE_verifyZKP(handle, &operationVerifyZKP);
+ *
+ * ECJPAKE_OperationVerifyZKP_init(&operationVerifyZKP);
+ * operationVerifyZKP.curve                = &ECCParams_NISTP256;
+ * operationVerifyZKP.theirGenerator       = &nistP256GeneratorCryptoKey;
+ * operationVerifyZKP.theirPublicKey       = &theirPublicCryptoKey2;
+ * operationVerifyZKP.theirPublicV         = &theirPublicCryptoV2;
+ * operationVerifyZKP.hash                 = theirHash2;
+ * operationVerifyZKP.r                    = theirR2;
+ *
+ * result = ECJPAKE_verifyZKP(handle,&operationVerifyZKP);
+ *
+ * // Round two starts now
+ *
+ * // Generate my round two keys
+ * ECJPAKE_OperationRoundTwoGenerateKeys_init(&operationRoundTwoGenerateKeys);
+ * operationRoundTwoGenerateKeys.curve                 = &ECCParams_NISTP256;
+ * operationRoundTwoGenerateKeys.myPrivateKey2         = &myPrivateCryptoKey2;
+ * operationRoundTwoGenerateKeys.myPublicKey1          = &myPublicCryptoKey1;
+ * operationRoundTwoGenerateKeys.myPublicKey2          = &myPublicCryptoKey2;
+ * operationRoundTwoGenerateKeys.theirPublicKey1       = &theirPublicCryptoKey1;
+ * operationRoundTwoGenerateKeys.theirPublicKey2       = &theirPublicCryptoKey2;
+ * operationRoundTwoGenerateKeys.preSharedSecret       = &preSharedSecretCryptoKey;
+ * operationRoundTwoGenerateKeys.theirNewGenerator     = &theirGeneratorKey;
+ * operationRoundTwoGenerateKeys.myNewGenerator        = &myGeneratorKey;
+ * operationRoundTwoGenerateKeys.myCombinedPrivateKey  = &myCombinedPrivateKey;
+ * operationRoundTwoGenerateKeys.myCombinedPublicKey   = &myCombinedPublicKey;
+ * operationRoundTwoGenerateKeys.myPrivateV            = &myPrivateCryptoV3;
+ * operationRoundTwoGenerateKeys.myPublicV             = &myPublicCryptoV3;
+ *
+ * result = ECJPAKE_roundTwoGenerateKeys(handle, &operationRoundTwoGenerateKeys);
+ *
+ * // Generate my round  two ZKP
+ * // Generate the round two hash here
+ *
+ * ECJPAKE_OperationGenerateZKP_init(&operationGenerateZKP);
+ * operationGenerateZKP.curve              = &ECCParams_NISTP256;
+ * operationGenerateZKP.myPrivateKey       = &myCombinedPrivateKey;
+ * operationGenerateZKP.myPrivateV         = &myPrivateCryptoV3;
+ * operationGenerateZKP.hash               = myHash3;
+ * operationGenerateZKP.r                  = myR3;
+ *
+ * result = ECJPAKE_generateZKP(handle, &operationGenerateZKP);
+ *
+ * // Exchange keys and ZKPs again
+ *
+ * // Verify their second round ZKP
+ * // Generate their round two hash here
+ *
+ * ECJPAKE_OperationVerifyZKP_init(&operationVerifyZKP);
+ * operationVerifyZKP.curve                = &ECCParams_NISTP256;
+ * operationVerifyZKP.theirGenerator       = &theirGeneratorKey;
+ * operationVerifyZKP.theirPublicKey       = &theirCombinedPublicKey;
+ * operationVerifyZKP.theirPublicV         = &theirPublicCryptoV3;
+ * operationVerifyZKP.hash                 = theirHash3;
+ * operationVerifyZKP.r                    = theirR3;
+ *
+ * result = ECJPAKE_verifyZKP(handle, &operationVerifyZKP);
+ *
+ * // Generate shared secret
+ * ECJPAKE_OperationComputeSharedSecret_init(&operationComputeSharedSecret);
+ * operationComputeSharedSecret.curve                      = &ECCParams_NISTP256;
+ * operationComputeSharedSecret.myCombinedPrivateKey       = &myCombinedPrivateKey;
+ * operationComputeSharedSecret.theirCombinedPublicKey     = &theirCombinedPublicKey;
+ * operationComputeSharedSecret.theirPublicKey2            = &theirPublicCryptoKey2;
+ * operationComputeSharedSecret.myPrivateKey2              = &myPrivateCryptoKey2;
+ * operationComputeSharedSecret.sharedSecret               = &sharedSecretCryptoKey;
+ *
+ * result =  ECJPAKE_computeSharedSecret(handle, &operationComputeSharedSecret);
+ *
+ * // Close the driver
+ * ECJPAKE_close(handle);
  * @endcode
  *
- * The application must declare an array of ECJPAKE_Config elements, named
- * ECJPAKE_config[].  Each element of ECJPAKE_config[] must be populated with
- * pointers to a device specific ECJPAKE driver implementation's
- * driver object, hardware attributes.
- * Each element in ECJPAKE_config[] corresponds to
- * an ECJPAKE instance, and none of the elements should have NULL pointers.
- * There is no correlation between the index and the
- * peripheral designation (such as ECJPAKE0 or ECJPAKE1).  For example, it is
- * possible to use ECJPAKE_config[0] for ECJPAKE1. Multiple drivers and driver
- * instances may all access the same underlying hardware. This is transparent
- * to the application. Mutual exclusion is performed automatically by the
- * drivers as necessary.
- *
- * Because the ECJPAKE configuration is highly device dependent, you will need to
- * check the doxygen for the device specific ECJPAKE implementation.  There you
- * will find a description of the ECJPAKE hardware attributes.  Please also
- * refer to the Board.c file of any of your examples to see the ECJPAKE
- * configuration.
- *
- * ## ECJPAKE Parameters #
- *
- * The #ECJPAKE_Params structure is passed to the ECJPAKE_open() call.  If NULL
- * is passed for the parameters, ECJPAKE_open() uses default parameters.
- * An #ECJPAKE_Params structure is initialized with default values by passing
- * it to ECJPAKE_Params_init().
- * Some of the ECJPAKE parameters are described below. To see brief descriptions
- * of all the parameters, see #ECJPAKE_Params.
- *
+ * @anchor ti_drivers_ECJPAKE_Examples
  * # Examples #
  *
  * ## Basic ECJPAKE exchange #
@@ -540,27 +644,8 @@ extern "C" {
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 #include <ti/drivers/cryptoutils/ecc/ECCParams.h>
 
-/**
- *  @defgroup ECJPAKE_CONTROL ECJPAKE_control command and status codes
- *  These ECJPAKE macros are reservations for ECJPAKE.h
- *  @{
- */
-
 /*!
- * Common ECJPAKE_control command code reservation offset.
- * ECJPAKE driver implementations should offset command codes with ECJPAKE_CMD_RESERVED
- * growing positively
- *
- * Example implementation specific command codes:
- * @code
- * #define ECJPAKEXYZ_CMD_COMMAND0     ECJPAKE_CMD_RESERVED + 0
- * #define ECJPAKEXYZ_CMD_COMMAND1     ECJPAKE_CMD_RESERVED + 1
- * @endcode
- */
-#define ECJPAKE_CMD_RESERVED           (32)
-
-/*!
- * Common ECJPAKE_control status code reservation offset.
+ * Common ECJPAKE status code reservation offset.
  * ECJPAKE driver implementations should offset status codes with
  * ECJPAKE_STATUS_RESERVED growing negatively.
  *
@@ -572,13 +657,6 @@ extern "C" {
  * @endcode
  */
 #define ECJPAKE_STATUS_RESERVED        (-32)
-
-/**
- *  @defgroup ECJPAKE_STATUS Status Codes
- *  ECJPAKE_STATUS_* macros are general status codes returned by ECJPAKE functions
- *  @{
- *  @ingroup ECJPAKE_CONTROL
- */
 
 /*!
  * @brief   Successful status code.
@@ -597,15 +675,6 @@ extern "C" {
 #define ECJPAKE_STATUS_ERROR           (-1)
 
 /*!
- * @brief   An error status code returned by ECJPAKE_control() for undefined
- * command codes.
- *
- * ECJPAKE_control() returns ECJPAKE_STATUS_UNDEFINEDCMD if the control code is not
- * recognized by the driver implementation.
- */
-#define ECJPAKE_STATUS_UNDEFINEDCMD    (-2)
-
-/*!
  * @brief   An error status code returned if the hardware or software resource
  * is currently unavailable.
  *
@@ -613,14 +682,14 @@ extern "C" {
  * many clients can simultaneously perform operations. This status code is returned
  * if the mutual exclusion mechanism signals that an operation cannot currently be performed.
  */
-#define ECJPAKE_STATUS_RESOURCE_UNAVAILABLE (-3)
+#define ECJPAKE_STATUS_RESOURCE_UNAVAILABLE (-2)
 
 /*!
  * @brief   The public key of the other party is not valid.
  *
  * The public key received from the other party is not valid.
  */
-#define ECJPAKE_STATUS_INVALID_PUBLIC_KEY (-4)
+#define ECJPAKE_STATUS_INVALID_PUBLIC_KEY (-3)
 
 /*!
  * @brief   The public key of the other party does not lie upon the curve.
@@ -628,7 +697,7 @@ extern "C" {
  * The public key received from the other party does not lie upon the agreed upon
  * curve.
  */
-#define ECJPAKE_STATUS_PUBLIC_KEY_NOT_ON_CURVE (-5)
+#define ECJPAKE_STATUS_PUBLIC_KEY_NOT_ON_CURVE (-4)
 
 /*!
  * @brief   A coordinate of the public key of the other party is too large.
@@ -637,7 +706,7 @@ extern "C" {
  * the prime of the curve. This implies that the point was not correctly
  * generated on that curve.
  */
-#define ECJPAKE_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME (-6)
+#define ECJPAKE_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME (-5)
 
 /*!
  * @brief   The result of the operation is the point at infinity.
@@ -645,7 +714,7 @@ extern "C" {
  * The operation yielded the point at infinity on this curve. This point is
  * not permitted for further use in ECC operations.
  */
-#define ECJPAKE_STATUS_POINT_AT_INFINITY (-7)
+#define ECJPAKE_STATUS_POINT_AT_INFINITY (-6)
 
 /*!
  * @brief   The private key passed into the the call is invalid.
@@ -653,7 +722,7 @@ extern "C" {
  * Private keys must be integers in the interval [1, n - 1], where n is the
  * order of the curve.
  */
-#define ECJPAKE_STATUS_INVALID_PRIVATE_KEY (-8)
+#define ECJPAKE_STATUS_INVALID_PRIVATE_KEY (-7)
 
 /*!
  * @brief   The private v passed into the the call is invalid.
@@ -661,29 +730,17 @@ extern "C" {
  * Private v must be integers in the interval [1, n - 1], where n is the
  * order of the curve.
  */
-#define ECJPAKE_STATUS_INVALID_PRIVATE_V (-9)
+#define ECJPAKE_STATUS_INVALID_PRIVATE_V (-8)
 
-
-/** @}*/
-
-/**
- *  @defgroup ECJPAKE_CMD Command Codes
- *  ECJPAKE_CMD_* macros are general command codes for ECJPAKE_control(). Not all ECJPAKE
- *  driver implementations support these command codes.
- *  @{
- *  @ingroup ECJPAKE_CONTROL
+/*!
+ *  @brief  The ongoing operation was canceled.
  */
-
-/* Add ECJPAKE_CMD_<commands> here */
-
-/** @}*/
-
-/** @}*/
+#define ECJPAKE_STATUS_CANCELED (-9)
 
 /*!
  *  @brief  A handle that is returned from an ECJPAKE_open() call.
  */
-typedef struct ECJPAKE_Config_    *ECJPAKE_Handle;
+typedef struct ECJPAKE_Config   *ECJPAKE_Handle;
 
 /*!
  * @brief   The way in which ECJPAKE function calls return after performing an
@@ -706,7 +763,7 @@ typedef struct ECJPAKE_Config_    *ECJPAKE_Handle;
  * |ECJPAKE_RETURN_BEHAVIOR_POLLING   | X     | X     | X     |
  *
  */
-typedef enum ECJPAKE_ReturnBehavior_ {
+typedef enum {
     ECJPAKE_RETURN_BEHAVIOR_CALLBACK = 1,   /*!< The function call will return immediately while the
                                              *   ECJPAKE operation goes on in the background. The registered
                                              *   callback function is called after the operation completes.
@@ -734,7 +791,7 @@ typedef enum ECJPAKE_ReturnBehavior_ {
  *
  *  @sa     ECJPAKE_init()
  */
-typedef struct ECJPAKE_Config_ {
+typedef struct ECJPAKE_Config {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -745,7 +802,7 @@ typedef struct ECJPAKE_Config_ {
 /*!
  *  @brief  Struct containing the parameters required to generate the first round of keys.
  */
-typedef struct ECJPAKE_OperationRoundOneGenerateKeys_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;                     /*!< A pointer to the elliptic curve parameters
                                                                  *   used in the operation.
                                                                  */
@@ -804,7 +861,7 @@ typedef struct ECJPAKE_OperationRoundOneGenerateKeys_ {
 /*!
  *  @brief  Struct containing the parameters required to generate a ZKP.
  */
-typedef struct ECJPAKE_OperationGenerateZKP_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;                     /*!< A pointer to the elliptic curve parameters
                                                                  *   used in the operation.
                                                                  */
@@ -829,7 +886,7 @@ typedef struct ECJPAKE_OperationGenerateZKP_ {
 /*!
  *  @brief  Struct containing the parameters required to verify a ZKP.
  */
-typedef struct ECJPAKE_OperationVerifyZKP_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;                     /*!< A pointer to the elliptic curve parameters
                                                                  *   used in the operation.
                                                                  */
@@ -857,7 +914,7 @@ typedef struct ECJPAKE_OperationVerifyZKP_ {
 /*!
  *  @brief  Struct containing the parameters required to generate the second round keys.
  */
-typedef struct ECJPAKE_OperationRoundTwoGenerateKeys_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;                     /*!< A pointer to the elliptic curve parameters
                                                                  *   used in the operation.
                                                                  */
@@ -927,7 +984,7 @@ typedef struct ECJPAKE_OperationRoundTwoGenerateKeys_ {
 /*!
  *  @brief  Struct containing the parameters required to compute the shared secret.
  */
-typedef struct ECJPAKE_OperationComputeSharedSecret_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;                     /*!< A pointer to the elliptic curve parameters
                                                                  *   used in the operation.
                                                                  */
@@ -956,7 +1013,7 @@ typedef struct ECJPAKE_OperationComputeSharedSecret_ {
 /*!
  *  @brief  Union containing pointers to all supported operation structs.
  */
-typedef union ECJPAKE_Operation_ {
+typedef union {
     ECJPAKE_OperationRoundOneGenerateKeys   *generateRoundOneKeys;  /*!< A pointer to an ECJPAKE_OperationRoundOneGenerateKeys struct */
     ECJPAKE_OperationGenerateZKP            *generateZKP;           /*!< A pointer to an ECJPAKE_OperationGenerateZKP struct */
     ECJPAKE_OperationVerifyZKP              *verifyZKP;             /*!< A pointer to an ECJPAKE_OperationVerifyZKP struct */
@@ -967,7 +1024,7 @@ typedef union ECJPAKE_Operation_ {
 /*!
  *  @brief  Enum for the operation types supported by the driver.
  */
-typedef enum ECJPAKE_OperationType_ {
+typedef enum {
     ECJPAKE_OPERATION_TYPE_ROUND_ONE_GENERATE_KEYS = 1,
     ECJPAKE_OPERATION_TYPE_GENERATE_ZKP = 2,
     ECJPAKE_OPERATION_TYPE_VERIFY_ZKP = 3,
@@ -1006,7 +1063,7 @@ typedef void (*ECJPAKE_CallbackFxn) (ECJPAKE_Handle handle,
  *
  *  @sa     ECJPAKE_Params_init()
  */
-typedef struct ECJPAKE_Params_ {
+typedef struct {
     ECJPAKE_ReturnBehavior  returnBehavior;                     /*!< Blocking, callback, or polling return behavior */
     ECJPAKE_CallbackFxn     callbackFxn;                        /*!< Callback function pointer */
     uint32_t                timeout;                            /*!< Timeout in system ticks before the operation fails
@@ -1090,45 +1147,6 @@ void ECJPAKE_OperationComputeSharedSecret_init(ECJPAKE_OperationComputeSharedSec
 void ECJPAKE_close(ECJPAKE_Handle handle);
 
 /*!
- *  @brief  Function performs implementation specific features on a given
- *          ECJPAKE_Handle.
- *
- *  Commands for ECJPAKE_control can originate from ECJPAKE.h or from implementation
- *  specific ECJPAKE*.h (_ECJPAKECC26X2.h_, _ECJPAKESP432.h_, etc.. ) files.
- *  While commands from ECJPAKE.h are API portable across driver implementations,
- *  not all implementations may support all these commands.
- *  Conversely, commands from driver implementation specific ECJPAKE*.h files add
- *  unique driver capabilities but are not API portable across all ECJPAKE driver
- *  implementations.
- *
- *  Commands supported by ECJPAKE.h follow an ECJPAKE_CMD_\<cmd\> naming
- *  convention.<br>
- *  Commands supported by ECJPAKE*.h follow an ECJPAKE*_CMD_\<cmd\> naming
- *  convention.<br>
- *  Each control command defines @b arg differently. The types of @b arg are
- *  documented with each command.
- *
- *  See @ref ECJPAKE_CMD "ECJPAKE_control command codes" for command codes.
- *
- *  See @ref ECJPAKE_STATUS "ECJPAKE_control return status codes" for status codes.
- *
- *  @pre    ECJPAKE_open() has to be called first.
- *
- *  @param  handle      An ECJPAKE handle returned from ECJPAKE_open()
- *
- *  @param  cmd         ECJPAKE.h or ECJPAKE*.h commands.
- *
- *  @param  args        An optional R/W (read/write) command argument
- *                      accompanied with cmd
- *
- *  @return Implementation specific return codes. Negative values indicate
- *          unsuccessful operations.
- *
- *  @sa     ECJPAKE_open()
- */
-int_fast16_t ECJPAKE_control(ECJPAKE_Handle handle, uint32_t cmd, void *args);
-
-/*!
  *  @brief  This function opens a given ECJPAKE peripheral.
  *
  *  @pre    ECJPAKE controller has been initialized using ECJPAKE_init()
@@ -1139,8 +1157,8 @@ int_fast16_t ECJPAKE_control(ECJPAKE_Handle handle, uint32_t cmd, void *args);
  *  @param  params        Pointer to an parameter block, if NULL it will use
  *                        default values.
  *
- *  @return An ECJPAKE_Handle on success or a NULL on an error or if it has been
- *          opened already.
+ *  @return An ECJPAKE_Handle on success or a NULL on an error or if it has
+ *          been opened already.
  *
  *  @sa     ECJPAKE_init()
  *  @sa     ECJPAKE_close()
@@ -1177,6 +1195,14 @@ void ECJPAKE_Params_init(ECJPAKE_Params *params);
  *
  *  @post Generate the two sets of hashes and ZKPs for the two public/private key pairs.
  *
+ *  @retval #ECJPAKE_STATUS_SUCCESS                The operation succeeded.
+ *  @retval #ECJPAKE_STATUS_ERROR                  The operation failed.
+ *  @retval #ECJPAKE_STATUS_RESOURCE_UNAVAILABLE   The required hardware resource was not available. Try again later.
+ *  @retval #ECJPAKE_STATUS_CANCELED               The operation was canceled.
+ *  @retval #ECJPAKE_STATUS_POINT_AT_INFINITY      The computed public key is the point at infinity.
+ *  @retval #ECJPAKE_STATUS_INVALID_PRIVATE_KEY    The private key passed into the the call is invalid.
+ *  @retval #ECJPAKE_STATUS_INVALID_PRIVATE_V      The private v passed into the the call is invalid.
+ *
  */
 int_fast16_t ECJPAKE_roundOneGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_OperationRoundOneGenerateKeys *operation);
 
@@ -1205,6 +1231,12 @@ int_fast16_t ECJPAKE_roundOneGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_Operati
  *
  *  @post   Send all ZKP signatures (\c r, public V, user ID) together with the
  *          public keys to the other party.
+ *
+ *
+ *  @retval #ECJPAKE_STATUS_SUCCESS                The operation succeeded.
+ *  @retval #ECJPAKE_STATUS_ERROR                  The operation failed.
+ *  @retval #ECJPAKE_STATUS_RESOURCE_UNAVAILABLE   The required hardware resource was not available. Try again later.
+ *  @retval #ECJPAKE_STATUS_CANCELED               The operation was canceled.
  */
 int_fast16_t ECJPAKE_generateZKP(ECJPAKE_Handle handle, ECJPAKE_OperationGenerateZKP *operation);
 
@@ -1223,6 +1255,13 @@ int_fast16_t ECJPAKE_generateZKP(ECJPAKE_Handle handle, ECJPAKE_OperationGenerat
  *          If in the second round, compute the generator first by calling
  *          ECJPAKE_roundTwoGenerateKeys().
  *          Call ECJPAKE_OperationVerifyZKP_init() on /c operation.
+ *
+ *  @retval #ECJPAKE_STATUS_SUCCESS                         The operation succeeded.
+ *  @retval #ECJPAKE_STATUS_ERROR                           The operation failed. Signature did not verify correctly.
+ *  @retval #ECJPAKE_STATUS_RESOURCE_UNAVAILABLE            The required hardware resource was not available. Try again later.
+ *  @retval #ECJPAKE_STATUS_CANCELED                        The operation was canceled.
+ *  @retval #ECJPAKE_STATUS_PUBLIC_KEY_NOT_ON_CURVE         The public key of the other party does not lie upon the curve.
+ *  @retval #ECJPAKE_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME    A coordinate of the public key of the other party is too large.
  */
 int_fast16_t ECJPAKE_verifyZKP(ECJPAKE_Handle handle, ECJPAKE_OperationVerifyZKP *operation);
 
@@ -1242,6 +1281,12 @@ int_fast16_t ECJPAKE_verifyZKP(ECJPAKE_Handle handle, ECJPAKE_OperationVerifyZKP
  *
  *  @post Generate the hash and ZKP signature for the second round public/private key.
  *
+ *  @retval #ECJPAKE_STATUS_SUCCESS                The operation succeeded.
+ *  @retval #ECJPAKE_STATUS_ERROR                  The operation failed.
+ *  @retval #ECJPAKE_STATUS_RESOURCE_UNAVAILABLE   The required hardware resource was not available. Try again later.
+ *  @retval #ECJPAKE_STATUS_CANCELED               The operation was canceled.
+ *  @retval #ECJPAKE_STATUS_INVALID_PRIVATE_KEY    The private key passed into the the call is invalid.
+ *  @retval #ECJPAKE_STATUS_INVALID_PRIVATE_V      The private v passed into the the call is invalid.
  */
 int_fast16_t ECJPAKE_roundTwoGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_OperationRoundTwoGenerateKeys *operation);
 
@@ -1264,12 +1309,28 @@ int_fast16_t ECJPAKE_roundTwoGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_Operati
  *          prove to each other that they are in posession of the symmetric session
  *          key. While this should be implied by the successful verification of
  *          the three ZKPs in the scheme, it is nonetheless good practice.
+ *
+ *  @retval #ECJPAKE_STATUS_SUCCESS                The operation succeeded.
+ *  @retval #ECJPAKE_STATUS_ERROR                  The operation failed.
+ *  @retval #ECJPAKE_STATUS_RESOURCE_UNAVAILABLE   The required hardware resource was not available. Try again later.
+ *  @retval #ECJPAKE_STATUS_CANCELED               The operation was canceled.
  */
 int_fast16_t ECJPAKE_computeSharedSecret(ECJPAKE_Handle handle, ECJPAKE_OperationComputeSharedSecret *operation);
 
-
-
-
+/*!
+ *  @brief Cancels an ongoing ECJPAKE operation.
+ *
+ *  Asynchronously cancels an ECJPAKE operation. Only available when using
+ *  ECJPAKE_RETURN_BEHAVIOR_CALLBACK or ECJPAKE_RETURN_BEHAVIOR_BLOCKING.
+ *  The operation will terminate as though an error occured. The
+ *  return status code of the operation will be ECJPAKE_STATUS_CANCELED.
+ *
+ *  @param  handle Handle of the operation to cancel
+ *
+ *  @retval #ECJPAKE_STATUS_SUCCESS               The operation was canceled.
+ *  @retval #ECJPAKE_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
+ */
+int_fast16_t ECJPAKE_cancelOperation(ECJPAKE_Handle handle);
 
 #ifdef __cplusplus
 }

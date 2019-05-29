@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,7 @@
  */
 /*!*****************************************************************************
  *  @file       UART.h
- *  @brief      UART driver interface
+ *  @brief      Universal Asynchronous Receiver-Transmitter (UART) Driver
  *
  *  To use the UART driver, ensure that the correct driver library for your
  *  device is linked in and include this header file as follows:
@@ -43,22 +43,68 @@
  *  is to redirect the UART APIs to specific driver implementations
  *  which are specified using a pointer to a #UART_FxnTable.
  *
- *  # Overview #
+ *  @anchor ti_drivers_UART_Overview
+ *  # Overview
  *  A UART is used to translate data between the chip and a serial port.
  *  The UART driver simplifies reading and writing to any of the UART
  *  peripherals on the board, with multiple modes of operation and performance.
  *  These include blocking, non-blocking, and polling, as well as text/binary
  *  mode, echo and return characters.
  *
- *  The APIs in this driver serve as an interface to a typical RTOS
+ *  The UART driver interface provides device independent APIs, data types,
+ *  and macros. The APIs in this driver serve as an interface to a typical RTOS
  *  application. The specific peripheral implementations are responsible for
  *  creating all the RTOS specific primitives to allow for thread-safe
  *  operation.
  *
- *  # Usage #
+ *  <hr>
+ *  @anchor ti_drivers_UART_Usage
+ *  # Usage
  *
- *  The UART driver interface provides device independent APIs, data types,
- *  and macros.  The following code example opens a UART instance, reads
+ *  This documentation provides a basic @ref ti_drivers_UART_Synopsis
+ *  "usage summary" and a set of @ref ti_drivers_UART_Examples "examples"
+ *  in the form of commented code fragments.  Detailed descriptions of the
+ *  APIs are provided in subsequent sections.
+ *
+ *  @anchor ti_drivers_UART_Synopsis
+ *  ## Synopsis
+ *  @anchor ti_drivers_UART_Synopsis_Code
+ *  @code
+ *  // Import the UART driver definitions
+ *  #include <ti/drivers/UART.h>
+ *
+ *  // One-time initialization of UART driver
+ *  UART_init();
+ *
+ *  // Initialize UART parameters
+ *  UART_Params params;
+ *  UART_Params_init(&params);
+ *  params.baudRate = 9600;
+ *  params.readMode = UART_MODE_BLOCKING;
+ *  params.writeMode = UART_MODE_BLOCKING;
+ *  params.readTimeout = UART_WAIT_FOREVER;
+ *  params.writeTimeout = UART_WAIT_FOREVER;
+ *
+ *  // Open the UART
+ *  UART_Handle uart;
+ *  uart = UART_open(Board_UART0, &params);
+ *
+ *  // Read from the UART
+ *  int32_t readCount;
+ *  uint8_t buffer[BUFSIZE];
+ *  readCount = UART_read(uart, buffer, BUFSIZE);
+ *
+ *  // Write to the UART
+ *  UART_write(uart, buffer, BUFSIZE);
+ *
+ *  // Close the UART
+ *  UART_close(uart);
+ *  @endcode
+ *
+ *  <hr>
+ *  @anchor ti_drivers_UART_Examples
+ *  # Examples
+ *  The following code example opens a UART instance, reads
  *  a byte from the UART, and then writes the byte back to the UART.
  *
  *  @code
@@ -66,7 +112,8 @@
  *    UART_Handle uart;
  *    UART_Params uartParams;
  *
- *    // Initialize the UART driver.
+ *    // Initialize the UART driver.  UART_init() must be called before
+ *    // calling any other UART APIs.
  *    UART_init();
  *
  *    // Create a UART with data processing off.
@@ -94,42 +141,6 @@
  *
  *  Details for the example code above are described in the following
  *  subsections.
- *
- *
- *  ### UART Driver Configuration #
- *
- *  In order to use the UART APIs, the application is required
- *  to provide device-specific UART configuration in the Board.c file.
- *  The UART driver interface defines a configuration data structure:
- *
- *  @code
- *  typedef struct UART_Config_ {
- *      UART_FxnTable const    *fxnTablePtr;
- *      void                   *object;
- *      void          const    *hwAttrs;
- *  } UART_Config;
- *  @endcode
- *
- *  The application must declare an array of UART_Config elements, named
- *  UART_config[].  Each element of UART_config[] are populated with
- *  pointers to a device specific UART driver implementation's function
- *  table, driver object, and hardware attributes.  The hardware attributes
- *  define properties such as the UART peripheral's base address, and
- *  the pins for RX and TX.  Each element in UART_config[] corresponds to
- *  a UART instance, and none of the elements should have NULL pointers.
- *  There is no correlation between the index and the peripheral designation
- *  (such as UART0 or UART1).  For example, it is possible to use
- *  UART_config[0] for UART1.
- *
- *  You will need to check the device-specific UART driver implementation's
- *  header file for example configuration.  Please also refer to the
- *  Board.c file of any of your examples to see the UART configuration.
- *
- *  ### Initializing the UART Driver #
- *
- *  UART_init() must be called before any other UART APIs.  This function
- *  calls the device implementation's UART initialization function, for each
- *  element of UART_config[].
  *
  *  ### Opening the UART Driver #
  *
@@ -229,26 +240,13 @@
  *  check for the UART_STATUS_ERROR return code indicating that a transfer is
  *  still ongoing.
  *
- *  # Implementation #
+ *  <hr>
+ *  @anchor ti_drivers_UART_Configuration
+ *  # Configuration
  *
- *  The UART driver interface module is joined (at link time) to an
- *  array of UART_Config data structures named *UART_config*.
- *  UART_config is implemented in the application with each entry being an
- *  instance of a UART peripheral. Each entry in *UART_config* contains a:
- *  - (UART_FxnTable *) to a set of functions that implement a UART peripheral
- *  - (void *) data object that is associated with the UART_FxnTable
- *  - (void *) hardware attributes that are associated with the UART_FxnTable
- *
- *  The UART APIs are redirected to the device specific implementations
- *  using the UART_FxnTable pointer of the UART_config entry.
- *  In order to use device specific functions of the UART driver directly,
- *  link in the correct driver library for your device and include the
- *  device specific UART driver header file (which in turn includes UART.h).
- *  For example, for the MSP432 family of devices, you would include the
- *  following header file:
- *    @code
- *    #include <ti/drivers/uart/UARTMSP432.h>
- *    @endcode
+ *  Refer to the @ref driver_configuration "Driver's Configuration" section
+ *  for driver configuration information.
+ *  <hr>
  *
  *  ============================================================================
  */

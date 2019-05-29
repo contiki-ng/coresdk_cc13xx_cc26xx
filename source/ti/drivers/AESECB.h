@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,14 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** ============================================================================
+/*!****************************************************************************
  *  @file       AESECB.h
  *
  *  @brief      AESECB driver header
  *
  *  @warning     This is a beta API. It may change in future releases.
  *
+ *  @anchor ti_drivers_AESECB_Overview
  *  # Overview #
  *  The Electronic Code Book (ECB) mode of operation is a generic
  *  encryption block cipher mode. It can be used with any block cipher.
@@ -53,6 +54,7 @@
  *  The AES key is a shared secret between the two parties and has a length
  *  of 128, 192, or 256 bits.
  *
+ *  @anchor ti_drivers_AESECB_Usage
  *  # Usage #
  *
  *  ## Before starting an ECB operation #
@@ -86,45 +88,37 @@
  *  After the ECB operation completes, the application should either start another operation
  *  or close the driver by calling AESECB_close()
  *
- *  ## AESECB Driver Configuration #
- *
- *  In order to use the AESECB APIs, the application is required
- *  to provide device-specific AESECB configuration in the Board.c file.
- *  The AESECB driver interface defines a configuration data structure:
- *
+ *  @anchor ti_drivers_AESECB_Synopsis
+ *  ## Synopsis
+ *  @anchor ti_drivers_AESECB_Synopsis_Code
  *  @code
- *  typedef struct AESECB_Config_ {
- *      void                   *object;
- *      void          const    *hwAttrs;
- *  } AESECB_Config;
+ *  // Import AESECB Driver definitions
+ *  #include <ti/drivers/AESECB.h>
+ *
+ *  AESECB_init();
+ *
+ *  // Define name for AESECB channel index
+ *  #define AESECB_INSTANCE 0
+ *
+ *  handle = AESECB_open(AESECB_INSTANCE, NULL);
+ *
+ *  // Initialize symmetric key
+ *  CryptoKeyPlaintext_initKey(&cryptoKey, keyingMaterial, sizeof(keyingMaterial));
+ *
+ *  // Set up AESECB_Operation
+ *  AESECB_Operation_init(&operation);
+ *  operation.key               = &cryptoKey;
+ *  operation.input             = plaintext;
+ *  operation.output            = ciphertext;
+ *  operation.inputLength       = sizeof(plaintext);
+ *  operation.iv                = iv;
+ *
+ *  encryptionResult = AESECB_oneStepEncrypt(handle, &operation);
+ *
+ *  AESECB_close(handle);
  *  @endcode
  *
- *  The application must declare an array of AESECB_Config elements, named
- *  AESECB_config[].  Each element of AESECB_config[] must be populated with
- *  pointers to a device specific AESECB driver implementation's driver object and
- *  hardware attributes.  The hardware attributes define properties such
- *  as the AESECB peripheral's base address.
- *  Each element in AESECB_config[] corresponds to an AESECB instance
- *  and none of the elements should have NULL pointers.
- *  There is no correlation between the index and the
- *  peripheral designation (such as AESECB0 or AESECB1).  For example, it is
- *  possible to use AESECB_config[0] for AESECB1. Multiple drivers and driver
- *  instances may all access the same underlying hardware. This is transparent
- *  to the application. Mutual exclusion is performed automatically by the
- *  drivers as necessary.
- *
- *  Because the AESECB configuration is very device dependent, you will need to
- *  check the doxygen for the device specific AESECB implementation.  There you
- *  will find a description of the AESECB hardware attributes.  Please also
- *  refer to the Board.c file of any of your examples to see the AESECB
- *  configuration.
- *
- *  ## AESECB Parameters
- *
- *  The #AESECB_Params structure is passed to the AESECB_open() call.  If NULL
- *  is passed for the parameters, AESECB_open() uses default parameters.
- *  An #AESECB_Params structure is initialized with default values by passing
- *  it to AESECB_Params_init().
+ *  @anchor ti_drivers_AESECB_Examples
  *
  *  ## Examples
  *
@@ -265,27 +259,8 @@ extern "C" {
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
-/**
- *  @defgroup AESECB_CONTROL AESECB_control command and status codes
- *  These AESECB macros are reservations for AESECB.h
- *  @{
- */
-
 /*!
- * Common AESECB_control command code reservation offset.
- * AESECB driver implementations should offset command codes with AESECB_CMD_RESERVED
- * growing positively
- *
- * Example implementation specific command codes:
- * @code
- * #define AESECBXYZ_CMD_COMMAND0     AESECB_CMD_RESERVED + 0
- * #define AESECBXYZ_CMD_COMMAND1     AESECB_CMD_RESERVED + 1
- * @endcode
- */
-#define AESECB_CMD_RESERVED           (32)
-
-/*!
- * Common AESECB_control status code reservation offset.
+ * Common AESECB status code reservation offset.
  * AESECB driver implementations should offset status codes with
  * AESECB_STATUS_RESERVED growing negatively.
  *
@@ -297,13 +272,6 @@ extern "C" {
  * @endcode
  */
 #define AESECB_STATUS_RESERVED        (-32)
-
-/**
- *  @defgroup AESECB_STATUS Status Codes
- *  AESECB_STATUS_* macros are general status codes returned by AESECB functions
- *  @{
- *  @ingroup AESECB_CONTROL
- */
 
 /*!
  * @brief   Successful status code.
@@ -322,15 +290,6 @@ extern "C" {
 #define AESECB_STATUS_ERROR           (-1)
 
 /*!
- * @brief   An error status code returned by AESECB_control() for undefined
- * command codes.
- *
- * AESECB_control() returns AESECB_STATUS_UNDEFINEDCMD if the control code is not
- * recognized by the driver implementation.
- */
-#define AESECB_STATUS_UNDEFINEDCMD    (-2)
-
-/*!
  * @brief   An error status code returned if the hardware or software resource
  * is currently unavailable.
  *
@@ -338,30 +297,17 @@ extern "C" {
  * many clients can simultaneously perform operations. This status code is returned
  * if the mutual exclusion mechanism signals that an operation cannot currently be performed.
  */
-#define AESECB_STATUS_RESOURCE_UNAVAILABLE (-3)
+#define AESECB_STATUS_RESOURCE_UNAVAILABLE (-2)
 
-/** @}*/
-
-/** @}*/
-
-/**
- *  @defgroup AESECB_CMD Command Codes
- *  AESECB_CMD_* macros are general command codes for AESECB_control(). Not all AESECB
- *  driver implementations support these command codes.
- *  @{
- *  @ingroup AESECB_CONTROL
+/*!
+ *  @brief  The ongoing operation was canceled.
  */
-
-/* Add AESECB_CMD_<commands> here */
-
-/** @}*/
-
-/** @}*/
+#define AESECB_STATUS_CANCELED (-3)
 
 /*!
  *  @brief  A handle that is returned from an AESECB_open() call.
  */
-typedef struct AESECB_Config_    *AESECB_Handle;
+typedef struct AESECB_Config    *AESECB_Handle;
 
 /*!
  * @brief   The way in which ECB function calls return after performing an
@@ -384,7 +330,7 @@ typedef struct AESECB_Config_    *AESECB_Handle;
  * |AESECB_RETURN_BEHAVIOR_POLLING  | X     | X     | X     |
  *
  */
-typedef enum AESECB_ReturnBehavior_ {
+typedef enum {
     AESECB_RETURN_BEHAVIOR_CALLBACK = 1,    /*!< The function call will return immediately while the
                                              *   ECB operation goes on in the background. The registered
                                              *   callback function is called after the operation completes.
@@ -404,7 +350,7 @@ typedef enum AESECB_ReturnBehavior_ {
 /*!
  *  @brief  Enum for the direction of the ECB operation.
  */
-typedef enum AESECB_Mode_ {
+typedef enum {
     AESECB_MODE_ENCRYPT = 1,
     AESECB_MODE_DECRYPT = 2,
 } AESECB_Mode;
@@ -413,7 +359,7 @@ typedef enum AESECB_Mode_ {
  *  @brief  Struct containing the parameters required for encrypting/decrypting
  *          and a message.
  */
-typedef struct AESECB_Operation_ {
+typedef struct {
    CryptoKey                *key;                       /*!< A previously initialized CryptoKey */
    uint8_t                  *input;                     /*!<
                                                          *   - Encryption: The plaintext buffer to be encrypted
@@ -434,7 +380,7 @@ typedef struct AESECB_Operation_ {
 /*!
  *  @brief  Enum for the operation types supported by the driver.
  */
-typedef enum AESECB_OperationType_ {
+typedef enum {
     AESECB_OPERATION_TYPE_ENCRYPT = 1,
     AESECB_OPERATION_TYPE_DECRYPT = 2,
 } AESECB_OperationType;
@@ -450,7 +396,7 @@ typedef enum AESECB_OperationType_ {
  *
  *  @sa     AESECB_init()
  */
-typedef struct AESECB_Config_ {
+typedef struct AESECB_Config {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -486,7 +432,7 @@ typedef void (*AESECB_CallbackFxn) (AESECB_Handle handle,
  *
  *  @sa     AESECB_Params_init()
  */
-typedef struct AESECB_Params_ {
+typedef struct {
     AESECB_ReturnBehavior   returnBehavior;             /*!< Blocking, callback, or polling return behavior */
     AESECB_CallbackFxn      callbackFxn;                /*!< Callback function pointer */
     uint32_t                timeout;                    /*!< Timeout before the driver returns an error in
@@ -559,47 +505,6 @@ AESECB_Handle AESECB_open(uint_least8_t index, AESECB_Params *params);
 void AESECB_close(AESECB_Handle handle);
 
 /*!
- *  @brief  Function performs implementation specific features on a given
- *          AESECB_Handle.
- *
- *  Commands for AESECB_control can originate from AESECB.h or from implementation
- *  specific AESECB*.h (_AESECBCC26XX.h_, _AESECBMSP432.h_, etc.. ) files.
- *  While commands from AESECB.h are API portable across driver implementations,
- *  not all implementations may support all these commands.
- *  Conversely, commands from driver implementation specific AESECB*.h files add
- *  unique driver capabilities but are not API portable across all AESECB driver
- *  implementations.
- *
- *  Commands supported by AESECB.h follow an AESECB_CMD_\<cmd\> naming
- *  convention.<br>
- *  Commands supported by AESECB*.h follow an AESECB*_CMD_\<cmd\> naming
- *  convention.<br>
- *  Each control command defines @b arg differently. The types of @b arg are
- *  documented with each command.
- *
- *  See @ref AESECB_CMD "AESECB_control command codes" for command codes.
- *
- *  See @ref AESECB_STATUS "AESECB_control return status codes" for status codes.
- *
- *  @pre    AESECB_open() has to be called first.
- *
- *  @param  handle      An AESECB handle returned from AESECB_open()
- *
- *  @param  cmd         AESECB.h or AESECB*.h commands.
- *
- *  @param  args        An optional R/W (read/write) command argument
- *                      accompanied with cmd
- *
- *  @return Implementation specific return codes. Negative values indicate
- *          unsuccessful operations.
- *
- *  @sa     AESECB_open()
- */
-int_fast16_t AESECB_control(AESECB_Handle handle, uint32_t cmd, void *args);
-
-
-
-/*!
  *  @brief  Function to initialize an AESECB_Operation struct to its defaults
  *
  *  @param  operationStruct     An pointer to AESECB_Operation structure for
@@ -621,7 +526,10 @@ void AESECB_Operation_init(AESECB_Operation *operationStruct);
  *
  *  @param  [in] operation              A pointer to a struct containing the parameters required to perform the operation.
  *
- *  @return A status code
+ *  @retval #AESECB_STATUS_SUCCESS               The operation succeeded.
+ *  @retval #AESECB_STATUS_ERROR                 The operation failed.
+ *  @retval #AESECB_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
+ *  @retval #AESECB_STATUS_CANCELED              The operation was canceled.
  *
  *  @sa     AESECB_oneStepDecrypt()
  */
@@ -639,13 +547,29 @@ int_fast16_t AESECB_oneStepEncrypt(AESECB_Handle handle, AESECB_Operation *opera
  *
  *  @param  [in] operation              A pointer to a struct containing the parameters required to perform the operation.
  *
- *  @return A status code
+ *  @retval #AESECB_STATUS_SUCCESS               The operation succeeded.
+ *  @retval #AESECB_STATUS_ERROR                 The operation failed.
+ *  @retval #AESECB_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
+ *  @retval #AESECB_STATUS_CANCELED              The operation was canceled.
  *
  *  @sa     AESECB_oneStepEncrypt()
  */
 int_fast16_t AESECB_oneStepDecrypt(AESECB_Handle handle, AESECB_Operation *operation);
 
-
+/*!
+ *  @brief Cancels an ongoing AESECB operation.
+ *
+ *  Asynchronously cancels an AESECB operation. Only available when using
+ *  AESECB_RETURN_BEHAVIOR_CALLBACK or AESECB_RETURN_BEHAVIOR_BLOCKING.
+ *  The operation will terminate as though an error occured. The
+ *  return status code of the operation will be AESECB_STATUS_CANCELED.
+ *
+ *  @param  handle Handle of the operation to cancel
+ *
+ *  @retval #AESECB_STATUS_SUCCESS               The operation was canceled.
+ *  @retval #AESECB_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
+ */
+int_fast16_t AESECB_cancelOperation(AESECB_Handle handle);
 
 #ifdef __cplusplus
 }

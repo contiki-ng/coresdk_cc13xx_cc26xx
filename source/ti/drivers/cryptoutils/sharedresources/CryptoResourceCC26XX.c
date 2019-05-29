@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -48,7 +48,7 @@ volatile bool CryptoResourceCC26XX_pollingFlag = 0;
 
 HwiP_Struct CryptoResourceCC26XX_hwi;
 
-static uint8_t openCount = 0;
+static bool isInitialized = false;
 
 static void errorSpin(uintptr_t arg) {
     while(1);
@@ -60,7 +60,7 @@ void CryptoResourceCC26XX_constructRTOSObjects(void) {
 
     key = HwiP_disable();
 
-    if (openCount == 0){
+    if (!isInitialized){
         /* Construct the common Hwi with a dummy ISR function. This should not matter as the function is set
          * whenever we start an operation after pending on CryptoResourceCC26XX_accessSemaphore
          */
@@ -72,25 +72,22 @@ void CryptoResourceCC26XX_constructRTOSObjects(void) {
         SemaphoreP_constructBinary(&CryptoResourceCC26XX_accessSemaphore, 1);
         SemaphoreP_constructBinary(&CryptoResourceCC26XX_operationSemaphore, 0);
 
+        isInitialized = true;
     }
-
-    openCount++;
 
     HwiP_restore(key);
 }
 
-void CryptoResourceCC26XX_destructRTOSObjects(void) {
-    uint_fast8_t key;
+bool CryptoResourceCC26XX_acquireLock(uint32_t timeout) {
+    SemaphoreP_Status resourceAcquired;
 
-    key = HwiP_disable();
+    /* Try and obtain access to the crypto module */
+    resourceAcquired = SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore,
+                                       timeout);
 
-    if (openCount == 1){
-        HwiP_destruct(&CryptoResourceCC26XX_hwi);
-        SemaphoreP_destruct(&CryptoResourceCC26XX_operationSemaphore);
-        SemaphoreP_destruct(&CryptoResourceCC26XX_accessSemaphore);
-    }
+    return resourceAcquired == SemaphoreP_OK;
+}
 
-    openCount--;
-
-    HwiP_restore(key);
+void CryptoResourceCC26XX_releaseLock() {
+    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
 }

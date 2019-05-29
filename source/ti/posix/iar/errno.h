@@ -147,6 +147,10 @@ extern "C" {
 #define EISCONN                 127
 #endif
 
+#ifndef ENETDOWN
+#define ENETDOWN                115
+#endif
+
 #ifndef ENETUNREACH
 #define ENETUNREACH             114
 #endif
@@ -178,6 +182,11 @@ extern "C" {
 #ifndef EPROTOTYPE
 #define EPROTOTYPE              107
 #endif
+
+#ifndef EWOULDBLOCK
+#define EWOULDBLOCK             EAGAIN
+#endif
+
 /* custom error codes */
 #define EFREERTOS    2001       /* FreeRTOS function failure */
 

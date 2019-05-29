@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -75,26 +75,30 @@
  *  by the timer resolution and the application is responsible for selecting
  *  duty and period that works with the underlying timer if high accuracy is
  *  needed.
+ *
  *  The effect of this is most visible when using high output frequencies as the
  *  available duty cycle resolution is reduced correspondingly. For a 24MHz PWM
  *  only a 0%/50%/100% duty is available as the timer uses only counts 0 and 1.
  *  Similarly for a 12MHz period the duty cycle will be limited to a 12.5%
  *  resolution.
- *  The PWM signals are generated using the high-frequency clock as source.
  *
- *  If very high-accuracy outputs are needed, the application should request
- *  using the external HF crystal:
+ *  @note The PWM signals are generated using the high-frequency clock as
+ *  a source. The internal RC oscillator is the source of the high frequency
+ *  clock, but may not be accurate enough for certain applications. If very
+ *  high-accuracy outputs are needed, the application should request using
+ *  the external HF crystal:
  *  @code
- *  #include <ti/sysbios/family/arm/cc26xx/Power.h>
- *  #include <ti/sysbios/family/arm/cc26xx/PowerCC2650.h>
- *  Power_setDependency(XOSC_HF);
+ *  #include <ti/drivers/Power.h>
+ *  #include <ti/drivers/power/PowerCC26XX.h>
+ *  Power_setDependency(PowerCC26XX_XOSC_HF);
  *  @endcode
  *
  *  # Limitations #
  *  - The PWM output can currently not be synchronized with other PWM outputs
  *  - The PWM driver does not support updating duty and period using DMA.
- *  - When changing duty cycle there will be a period where the high level is
- *    either too short or too high since the timer match value is updated.
+ *  - Changes to the timer period are applied immediately, which can cause
+ *    pulses to be too long or short unless period changes are applied close
+ *    to a timeout. Does not apply to duty cycle, which is applied on timeout.
  *  # PWM usage #
  *
  *  ## Basic PWM output ##
@@ -201,6 +205,7 @@ typedef struct PWMTimerCC26XX_HwAttrs
 typedef struct PWMTimerCC26XX_Object
 {
     bool                 isOpen;        /*!< open flag used to check if PWM is opened */
+    bool                 isRunning;     /*!< running flag, set if the output is active */
     PWM_Period_Units     periodUnit;    /*!< Current period unit */
     uint32_t             periodValue;   /*!< Current period value in unit */
     uint32_t             periodCounts;  /*!< Current period in raw timer counts */

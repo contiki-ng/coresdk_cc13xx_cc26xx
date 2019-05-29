@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       chipinfo.h
-*  Revised:        2018-05-01 11:59:00 +0200 (Tue, 01 May 2018)
-*  Revision:       51944
+*  Revised:        2018-06-18 10:26:12 +0200 (Mon, 18 Jun 2018)
+*  Revision:       52189
 *
 *  Description:    Collection of functions returning chip information.
 *

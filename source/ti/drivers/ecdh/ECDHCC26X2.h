@@ -182,12 +182,6 @@ typedef struct ECDHCC26X2_HWAttrs_ {
         HWI's with priority 0 ignore the HWI dispatcher to support zero-latency interrupts, thus invalidating the critical sections in this driver.
     */
     uint8_t    intPriority;
-        /*! @brief ECC SWI priority.
-        The higher the number, the higher the priority.
-        The minimum is 0 and the maximum is 15 by default.
-        The maximum can be reduced to save RAM by adding or modifying Swi.numPriorities in the kernel configuration file.
-    */
-    uint32_t   swiPriority;
 } ECDHCC26X2_HWAttrs;
 
 /*!
@@ -197,7 +191,9 @@ typedef struct ECDHCC26X2_HWAttrs_ {
  */
 typedef struct ECDHCC26X2_Object_ {
     bool                            isOpen;
-    int_fast16_t                    returnValue;
+    bool                            operationInProgress;
+    bool                            operationCanceled;
+    int_fast16_t                    operationStatus;
     ECDH_CallbackFxn                callbackFxn;
     ECDH_ReturnBehavior             returnBehavior;
     ECDH_Operation                  operation;
@@ -205,7 +201,6 @@ typedef struct ECDHCC26X2_Object_ {
     ECDHCC26X2_FsmState             fsmState;
     uint32_t                        semaphoreTimeout;
     uint32_t                        resultAddress;
-    SwiP_Struct                     callbackSwi;
 } ECDHCC26X2_Object;
 
 #ifdef __cplusplus

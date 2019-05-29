@@ -36,7 +36,6 @@
 
 #include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/HwiP.h>
-#include <ti/drivers/dpl/SwiP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/dpl/DebugP.h>
 
@@ -60,7 +59,6 @@
 
 /* Forward declarations */
 static void ECDHCC26X2_hwiFxn (uintptr_t arg0);
-static void ECDHCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1);
 static void ECDHCC26X2_internalCallbackFxn (ECDH_Handle handle,
                                                int_fast16_t returnStatus,
                                                ECDH_Operation operation,
@@ -87,8 +85,6 @@ static void ECDHCC26X2_internalCallbackFxn (ECDH_Handle handle,
                                              ECDH_OperationType operationType) {
     ECDHCC26X2_Object *object = handle->object;
 
-    object->returnValue = returnStatus;
-
     /* This function is only ever registered when in ECDH_RETURN_BEHAVIOR_BLOCKING
      * or ECDH_RETURN_BEHAVIOR_POLLING.
      */
@@ -105,28 +101,37 @@ static void ECDHCC26X2_internalCallbackFxn (ECDH_Handle handle,
  */
 static void ECDHCC26X2_hwiFxn (uintptr_t arg0) {
     ECDHCC26X2_Object *object = ((ECDH_Handle)arg0)->object;
+    int_fast16_t operationStatus;
+    ECDH_Operation operation;
+    ECDH_OperationType operationType;
+    uint32_t key;
 
-    // Disable interrupt again
+    /* Disable interrupt again. It may be reenabled in the FSM function. */
     IntDisable(INT_PKA_IRQ);
 
-    SwiP_post(&(object->callbackSwi));
-}
-
-
-/*
- *  ======== ECDHCC26X2_swiFxn ========
- */
-static void ECDHCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
-    ECDHCC26X2_Object *object = ((ECDH_Handle)arg0)->object;
-    int_fast16_t fsmResult;
-
+    /* Execute next states */
     do {
-        fsmResult = ECDHCC26X2_runFSM((ECDH_Handle)arg0);
+        object->operationStatus = ECDHCC26X2_runFSM((ECDH_Handle)arg0);
         object->fsmState++;
-    } while (fsmResult == ECDHCC26X2_STATUS_FSM_RUN_FSM);
+    } while (object->operationStatus == ECDHCC26X2_STATUS_FSM_RUN_FSM);
 
-    switch (fsmResult) {
+    /* We need a critical section here in case the operation is canceled
+     * asynchronously.
+     */
+    key = HwiP_disable();
+
+    if(object->operationCanceled) {
+        /* Set function register to 0. This should stop the current operation */
+        HWREG(PKA_BASE + PKA_O_FUNCTION) = 0;
+
+        object->operationStatus = ECDH_STATUS_CANCELED;
+    }
+
+    switch (object->operationStatus) {
         case ECDHCC26X2_STATUS_FSM_RUN_PKA_OP:
+
+            HwiP_restore(key);
+
             /* Do nothing. The PKA or TRNG hardware
              * will execute in the background and post
              * this SWI when it is done.
@@ -136,19 +141,55 @@ static void ECDHCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
             /* Intentional fall through */
         case ECDH_STATUS_ERROR:
             /* Intentional fall through */
+        case ECDH_STATUS_CANCELED:
+            /* Intentional fall through */
         default:
-            /*  Grant access for other threads to use the crypto module.
-             *  The semaphore must be posted before the callbackFxn to allow the chaining
-             *  of operations.
+
+            /* Mark this operation as complete */
+            object->operationInProgress = false;
+
+            /* Clear any pending interrupt in case a transaction kicked off
+             * above already finished
              */
-            SemaphoreP_post(&PKAResourceCC26XX_accessSemaphore);
+            IntDisable(INT_PKA_IRQ);
+            IntPendClear(INT_PKA_IRQ);
+
+            /* We can end the critical section since the operation may no
+             * longer be canceled
+             */
+            HwiP_restore(key);
+
+            /* Make sure there is no keying material remaining in PKA RAM */
+            PKAClearPkaRam();
+
+            /* Save all inputs to the callbackFxn on the stack
+             * in case a higher priority hwi comes in and
+             * starts a new operation after we have released the
+             * access semaphore.
+             */
+            operationStatus     = object->operationStatus;
+            operation           = object->operation;
+            operationType       = object->operationType;
 
             Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
+            /*  Grant access for other threads to use the crypto module.
+             *  The semaphore must be posted before the callbackFxn to allow the chaining
+             *  of operations. This does have the drawback that another hwi
+             *  can come in and start an operation before the original
+             *  on finished completely. This should be prevented by
+             *  customers only starting operations with the same
+             *  handle from a single context and waiting for
+             *  the callback of the original operation to
+             *  be executed in callback return mode.
+             */
+            SemaphoreP_post(&PKAResourceCC26XX_accessSemaphore);
+
+
             object->callbackFxn((ECDH_Handle)arg0,
-                                fsmResult,
-                                object->operation,
-                                object->operationType);
+                                operationStatus,
+                                operation,
+                                operationType);
     }
 }
 
@@ -377,23 +418,9 @@ static int_fast16_t ECDHCC26X2_convertReturnValue(uint32_t pkaResult) {
  *  ======== ECDH_init ========
  */
 void ECDH_init(void) {
-    uint_least8_t i;
-    uint_fast8_t key;
+    PKAResourceCC26XX_constructRTOSObjects();
 
-    key = HwiP_disable();
-
-    if (!isInitialized) {
-        // Call each instances' driver init function
-        for (i = 0; i < ECDH_count; i++) {
-            ECDH_Handle handle = (ECDH_Handle)&(ECDH_config[i]);
-            ECDHCC26X2_Object *object = (ECDHCC26X2_Object *)handle->object;
-            object->isOpen = false;
-        }
-
-        isInitialized = true;
-    }
-
-    HwiP_restore(key);
+    isInitialized = true;
 }
 
 /*
@@ -407,15 +434,12 @@ void ECDH_Params_init(ECDH_Params *params){
  *  ======== ECDH_open ========
  */
 ECDH_Handle ECDH_open(uint_least8_t index, ECDH_Params *params) {
-    SwiP_Params                 swiParams;
     ECDH_Handle                  handle;
     ECDHCC26X2_Object           *object;
-    ECDHCC26X2_HWAttrs const    *hwAttrs;
     uint_fast8_t                key;
 
     handle = (ECDH_Handle)&(ECDH_config[index]);
     object = handle->object;
-    hwAttrs = handle->hwAttrs;
 
     DebugP_assert(index < ECDH_count);
 
@@ -441,14 +465,6 @@ ECDH_Handle ECDH_open(uint_least8_t index, ECDH_Params *params) {
     object->callbackFxn = params->returnBehavior == ECDH_RETURN_BEHAVIOR_CALLBACK ? params->callbackFxn : ECDHCC26X2_internalCallbackFxn;
     object->semaphoreTimeout = params->timeout;
 
-    // Create Swi object for this ECC peripheral
-    SwiP_Params_init(&swiParams);
-    swiParams.arg0 = (uintptr_t)handle;
-    swiParams.priority = hwAttrs->swiPriority;
-    SwiP_construct(&(object->callbackSwi), ECDHCC26X2_swiFxn, &swiParams);
-
-    PKAResourceCC26XX_constructRTOSObjects();
-
     // Set power dependency - i.e. power up and enable clock for PKA (PKAResourceCC26XX) module.
     Power_setDependency(PowerCC26X2_PERIPH_PKA);
 
@@ -466,16 +482,11 @@ void ECDH_close(ECDH_Handle handle) {
     // Get the pointer to the object
     object = handle->object;
 
-    // Release power dependency on PKA Module.
-    Power_releaseDependency(PowerCC26X2_PERIPH_PKA);
-
-    // Destroy the Swi
-    SwiP_destruct(&(object->callbackSwi));
-
-    PKAResourceCC26XX_destructRTOSObjects();
-
     // Mark the module as available
     object->isOpen = false;
+
+    // Release power dependency on PKA Module.
+    Power_releaseDependency(PowerCC26X2_PERIPH_PKA);
 }
 
 
@@ -498,13 +509,15 @@ static int_fast16_t ECDHCC26X2_waitForAccess(ECDH_Handle handle) {
 static int_fast16_t ECDHCC26X2_waitForResult(ECDH_Handle handle){
     ECDHCC26X2_Object *object = handle->object;
 
+    object->operationInProgress = true;
+
     switch (object->returnBehavior) {
         case ECDH_RETURN_BEHAVIOR_POLLING:
             while(!PKAResourceCC26XX_pollingFlag);
-            return object->returnValue;
+            return object->operationStatus;
         case ECDH_RETURN_BEHAVIOR_BLOCKING:
             SemaphoreP_pend(&PKAResourceCC26XX_operationSemaphore, SemaphoreP_WAIT_FOREVER);
-            return object->returnValue;
+            return object->operationStatus;
         case ECDH_RETURN_BEHAVIOR_CALLBACK:
             return ECDH_STATUS_SUCCESS;
         default:
@@ -527,9 +540,10 @@ int_fast16_t ECDH_generatePublicKey(ECDH_Handle handle, ECDH_OperationGeneratePu
      * The FSM runs in SWI context and thus needs to keep track of
      * all of them somehow.
      */
-    object->returnValue                     = ECDH_STATUS_ERROR;
+    object->operationStatus                 = ECDHCC26X2_STATUS_FSM_RUN_FSM;
     object->operation.generatePublicKey     = operation;
     object->operationType                   = ECDH_OPERATION_TYPE_GENERATE_PUBLIC_KEY;
+    object->operationCanceled               = false;
 
     /* Use the correct state chain for the curve type */
     if (operation->curve->curveType == ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS) {
@@ -551,8 +565,10 @@ int_fast16_t ECDH_generatePublicKey(ECDH_Handle handle, ECDH_OperationGeneratePu
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Start running FSM to generate public key. The PKA interrupt is level triggered and
+     * will run imediately once enabled
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECDHCC26X2_waitForResult(handle);
 }
@@ -572,9 +588,11 @@ int_fast16_t ECDH_computeSharedSecret(ECDH_Handle handle, ECDH_OperationComputeS
      * The FSM runs in SWI context and thus needs to keep track of
      * all of them somehow.
      */
-    object->returnValue                     = ECDH_STATUS_ERROR;
+    object->operationStatus                 = ECDHCC26X2_STATUS_FSM_RUN_FSM;
     object->operation.computeSharedSecret   = operation;
     object->operationType                   = ECDH_OPERATION_TYPE_COMPUTE_SHARED_SECRET;
+    object->operationCanceled               = false;
+
 
     /* Use the correct state chain for the curve type */
     if (operation->curve->curveType == ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS) {
@@ -596,8 +614,30 @@ int_fast16_t ECDH_computeSharedSecret(ECDH_Handle handle, ECDH_OperationComputeS
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Start running FSM to generate PMSN. The PKA interrupt is level triggered and
+     * will run imediately once enabled
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECDHCC26X2_waitForResult(handle);
+}
+
+/*
+ *  ======== ECDH_cancelOperation ========
+ */
+int_fast16_t ECDH_cancelOperation(ECDH_Handle handle) {
+    ECDHCC26X2_Object *object = handle->object;
+
+    if(!object->operationInProgress){
+        return ECDH_STATUS_ERROR;
+    }
+
+    object->operationCanceled = true;
+
+    /* Post hwi as if operation finished for cleanup */
+    IntEnable(INT_PKA_IRQ);
+    HwiP_post(INT_PKA_IRQ);
+
+
+    return ECDH_STATUS_SUCCESS;
 }

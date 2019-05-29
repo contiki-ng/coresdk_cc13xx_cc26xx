@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -106,6 +106,7 @@ static void readIsr(UART_Handle handle, uint32_t status);
 static void readSemCallback(UART_Handle handle, void *buffer, size_t count);
 static int readTaskBlocking(UART_Handle handle);
 static int readTaskCallback(UART_Handle handle);
+static int ringBufGet(UART_Handle handle, unsigned char *data);
 static void swiReadCallback(uintptr_t arg0, uintptr_t arg1);
 static void swiWriteCallback(uintptr_t arg0, uintptr_t arg1);
 static void writeData(UART_Handle handle);
@@ -217,11 +218,22 @@ void UARTCC26X2_close(UART_Handle handle)
     /* Set to false to allow UARTCC26X2_readCancel() to release constraint */
     object->state.ctrlRxEnabled = false;
 
+    object->state.opened = false;
+
     /* Cancel any possible ongoing reads/writes */
     UARTCC26X2_writeCancel(handle);
     UARTCC26X2_readCancel(handle);
 
-    UARTDisable(hwAttrs->baseAddr);
+    /*
+     *  Disable the UART.  Do not call driverlib function
+     *  UARTDisable() since it polls for BUSY bit to clear
+     *  before disabling the UART FIFO and module.
+     */
+    /* Disable UART FIFO */
+    HWREG(hwAttrs->baseAddr + UART_O_LCRH) &= ~(UART_LCRH_FEN);
+    /* Disable UART module */
+    HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_UARTEN | UART_CTL_TXE |
+                                      UART_CTL_RXE);
 
     HwiP_destruct(&(object->hwi));
     if (object->state.writeMode == UART_MODE_BLOCKING) {
@@ -239,9 +251,6 @@ void UARTCC26X2_close(UART_Handle handle)
 
     /* Release power dependency - i.e. potentially power down serial domain. */
     Power_releaseDependency(object->powerMgrId);
-
-
-    object->state.opened = false;
 
     DebugP_log1("UART:(%p) closed", hwAttrs->baseAddr);
 }
@@ -506,7 +515,9 @@ int_fast32_t UARTCC26X2_read(UART_Handle handle, void *buffer, size_t size)
 
     key = HwiP_disable();
 
-    if ((object->state.readMode == UART_MODE_CALLBACK) && object->readSize) {
+    if (!object->state.opened ||
+            ((object->state.readMode == UART_MODE_CALLBACK) &&
+                    object->readSize)) {
         HwiP_restore(key);
         return (UART_ERROR);
     }
@@ -581,17 +592,24 @@ int_fast32_t UARTCC26X2_readPolling(UART_Handle handle, void *buf, size_t size)
     UARTCC26X2_Object           *object = handle->object;
     UARTCC26X2_HWAttrs const    *hwAttrs = handle->hwAttrs;
     unsigned char               *buffer = (unsigned char *)buf;
+    uintptr_t                    key;
 
     /* Read characters. */
     while (size) {
         /* Grab data from the RingBuf before getting it from the RX data reg */
+        key = HwiP_disable();
         UARTIntDisable(hwAttrs->baseAddr, UART_INT_RX | UART_INT_RT);
+        HwiP_restore(key);
+
         if (RingBuf_get(&object->ringBuffer, buffer) == -1) {
             *buffer = UARTCharGet(hwAttrs->baseAddr);
         }
+
+        key = HwiP_disable();
         if (object->state.rxEnabled) {
             UARTIntEnable(hwAttrs->baseAddr, UART_INT_RX | UART_INT_RT);
         }
+        HwiP_restore(key);
 
         DebugP_log2("UART:(%p) Read character 0x%x", hwAttrs->baseAddr,
             *buffer);
@@ -658,9 +676,9 @@ int_fast32_t UARTCC26X2_write(UART_Handle handle, const void *buffer,
      *  Make sure any previous write has fininshed.  If TX is still
      *  enabled, then writeSwi has not yet been posted.
      */
-    if (object->state.txEnabled) {
+    if (!object->state.opened || object->state.txEnabled) {
         HwiP_restore(key);
-        DebugP_log1("UART:(%p) Could not write data, uart in use.",
+        DebugP_log1("UART:(%p) Could not write data, uart closed or in use.",
             hwAttrs->baseAddr);
 
         return (UART_ERROR);
@@ -695,7 +713,9 @@ int_fast32_t UARTCC26X2_write(UART_Handle handle, const void *buffer,
         writeData(handle);
     }
     if (object->writeCount) {
+        key = HwiP_disable();
         UARTIntEnable(hwAttrs->baseAddr, UART_INT_TX);
+        HwiP_restore(key);
     }
 
     /* If writeMode is blocking, block and get the state. */
@@ -704,10 +724,10 @@ int_fast32_t UARTCC26X2_write(UART_Handle handle, const void *buffer,
         if (SemaphoreP_OK != SemaphoreP_pend(&(object->writeSem),
                     object->writeTimeout)) {
             /* Semaphore timed out, make the write empty and log the write. */
+            key = HwiP_disable();
             UARTIntDisable(hwAttrs->baseAddr, UART_INT_TX | UART_INT_EOT);
             UARTIntClear(hwAttrs->baseAddr, UART_INT_TX | UART_INT_EOT);
 
-            key = HwiP_disable();
             if (object->state.txEnabled) {
 
                 /* Disable TX */
@@ -773,9 +793,12 @@ int_fast32_t UARTCC26X2_writePolling(UART_Handle handle, const void *buf,
     UARTCC26X2_Object         *object = handle->object;
     UARTCC26X2_HWAttrs const  *hwAttrs = handle->hwAttrs;
     unsigned char             *buffer = (unsigned char *)buf;
+    uintptr_t                  key;
 
     /* Enable TX */
+    key = HwiP_disable();
     HWREG(hwAttrs->baseAddr + UART_O_CTL) |= UART_CTL_TXE;
+    HwiP_restore(key);
 
     /* Write characters. */
     while (size) {
@@ -797,7 +820,9 @@ int_fast32_t UARTCC26X2_writePolling(UART_Handle handle, const void *buf,
     }
 
     /* Disable TX */
+    key = HwiP_disable();
     HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_TXE);
+    HwiP_restore(key);
 
     DebugP_log2("UART:(%p) Write polling finished, %d bytes written",
         hwAttrs->baseAddr, count);
@@ -822,17 +847,21 @@ static void disableRX(UART_Handle handle)
 {
     UARTCC26X2_Object         *object = handle->object;
     UARTCC26X2_HWAttrs const  *hwAttrs = handle->hwAttrs;
+    uintptr_t                  key;
 
     if (!object->state.ctrlRxEnabled) {
+        key = HwiP_disable();
         if (object->state.rxEnabled) {
             UARTIntDisable(hwAttrs->baseAddr, UART_INT_RX | UART_INT_RT |
                     UART_INT_OE | UART_INT_BE | UART_INT_PE | UART_INT_FE);
             /* Disable RX */
             HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_RXE);
+
             object->state.rxEnabled = false;
 
             Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
         }
+        HwiP_restore(key);
     }
 }
 
@@ -843,7 +872,9 @@ static void enableRX(UART_Handle handle)
 {
     UARTCC26X2_Object         *object = handle->object;
     UARTCC26X2_HWAttrs const  *hwAttrs = handle->hwAttrs;
+    uintptr_t                  key;
 
+    key = HwiP_disable();
     if (!object->state.rxEnabled) {
         /* Set constraint for sleep to guarantee transaction */
         Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
@@ -855,6 +886,7 @@ static void enableRX(UART_Handle handle)
 
         object->state.rxEnabled = true;
     }
+    HwiP_restore(key);
 }
 
 /*
@@ -1040,9 +1072,17 @@ static void readIsr(UART_Handle handle, uint32_t status)
     }
 
     bytesRead = 0;
-    readIn = UARTCharGetNonBlocking(hwAttrs->baseAddr);
 
-    while (readIn != -1) {
+    while (UARTCharsAvail(hwAttrs->baseAddr)) {
+        /*
+         *  If the Ring buffer is full, leave the data in the FIFO.
+         *  This will allow flow control to work, if it is enabled.
+         */
+        if (RingBuf_isFull(&object->ringBuffer)) {
+            break;
+        }
+
+        readIn = UARTCharGetNonBlocking(hwAttrs->baseAddr);
         if (readIn & UART_BE_PE_FE) {
             errStatus = UARTRxErrorGet(hwAttrs->baseAddr);
             UARTRxErrorClear(hwAttrs->baseAddr);
@@ -1059,12 +1099,7 @@ static void readIsr(UART_Handle handle, uint32_t status)
             }
             readIn = '\n';
         }
-        if (RingBuf_put(&object->ringBuffer, (unsigned char)readIn) == -1) {
-            DebugP_log1("UART:(%p) Ring buffer full!!", hwAttrs->baseAddr);
-            break;
-        }
-        DebugP_log2("UART:(%p) buffered '0x%02x'", hwAttrs->baseAddr,
-            (unsigned char)readIn);
+        RingBuf_put(&object->ringBuffer, (unsigned char)readIn);
 
         if ((object->state.readDataMode == UART_DATA_TEXT) &&
                 (object->state.readEcho)) {
@@ -1074,7 +1109,6 @@ static void readIsr(UART_Handle handle, uint32_t status)
         if (bytesRead >= maxBytesToRead) {
             break;
         }
-        readIn = UARTCharGetNonBlocking(hwAttrs->baseAddr);
     }
 
     if ((object->state.readMode == UART_MODE_BLOCKING) && ((bytesRead > 0) ||
@@ -1143,11 +1177,19 @@ static int readTaskBlocking(UART_Handle handle)
     while (object->readCount) {
         key = HwiP_disable();
 
-        if (RingBuf_get(&object->ringBuffer, &readIn) < 0) {
-            if ((object->status == READTIMEDOUT) && object->readRetPartial) {
-                object->status = 0;
-                HwiP_restore(key);
-                break;
+        if (ringBufGet(handle, &readIn) < 0) {
+            if (object->readRetPartial) {
+                if (object->status == READTIMEDOUT) {
+                    object->status = 0;
+                    HwiP_restore(key);
+                    break;
+                }
+
+                /* If some data has been read, return */
+                if (object->readCount < object->readSize) {
+                    HwiP_restore(key);
+                    break;
+                }
             }
 
             if (object->state.bufTimeout || (object->status != 0)) {
@@ -1211,7 +1253,7 @@ static int readTaskCallback(UART_Handle handle)
     bufferEnd = (unsigned char*) object->readBuf + object->readSize;
 
     while (object->readCount) {
-        if (RingBuf_get(&object->ringBuffer, &readIn) < 0) {
+        if (ringBufGet(handle, &readIn) < 0) {
             break;
         }
 
@@ -1254,6 +1296,37 @@ static int readTaskCallback(UART_Handle handle)
     }
 
     return (0);
+}
+
+/*
+ *  ======== ringBufGet ========
+ */
+static int ringBufGet(UART_Handle handle, unsigned char *data)
+{
+    UARTCC26X2_Object      *object = handle->object;
+    UARTCC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
+    uintptr_t               key;
+    int32_t                 readIn;
+    int                     count;
+
+    key = HwiP_disable();
+
+    if (RingBuf_isFull(&object->ringBuffer)) {
+        count = RingBuf_get(&object->ringBuffer, data);
+
+        readIn = UARTCharGetNonBlocking(hwAttrs->baseAddr);
+        if (readIn != -1) {
+            RingBuf_put(&object->ringBuffer, (unsigned char)readIn);
+            count++;
+        }
+        HwiP_restore(key);
+    }
+    else {
+        count = RingBuf_get(&object->ringBuffer, data);
+        HwiP_restore(key);
+    }
+
+    return (count);
 }
 
 /*
@@ -1306,6 +1379,7 @@ static void writeData(UART_Handle handle)
     UARTCC26X2_Object           *object = handle->object;
     UARTCC26X2_HWAttrs const    *hwAttrs = handle->hwAttrs;
     unsigned char               *writeOffset;
+    uintptr_t                    key;
 
     writeOffset = (unsigned char *)object->writeBuf +
             object->writeSize * sizeof(unsigned char);
@@ -1324,7 +1398,10 @@ static void writeData(UART_Handle handle)
     }
 
     if (!object->writeCount) {
+        key = HwiP_disable();
         UARTIntDisable(hwAttrs->baseAddr, UART_INT_TX);
+        HwiP_restore(key);
+
         UARTIntClear(hwAttrs->baseAddr, UART_INT_TX);
 
         /*
@@ -1332,10 +1409,14 @@ static void writeData(UART_Handle handle)
          *  The EOTRIS bit will be set only when all the data
          *  (including stop bits) have left the serializer.
          */
+        key = HwiP_disable();
         UARTIntEnable(hwAttrs->baseAddr, UART_INT_EOT);
+        HwiP_restore(key);
 
         if (!UARTBusy(hwAttrs->baseAddr)) {
+            key = HwiP_disable();
             UARTIntDisable(hwAttrs->baseAddr, UART_INT_EOT);
+            HwiP_restore(key);
             UARTIntClear(hwAttrs->baseAddr, UART_INT_EOT);
 
             SwiP_post(&(object->writeSwi));

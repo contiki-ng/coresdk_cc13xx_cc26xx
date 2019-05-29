@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -63,10 +63,13 @@
  *  On CC13XX & CC26XX memory rows can be 128 or 256 bytes in length; refer to
  *  the device datasheet for the exact size.  A maximum of 83 write operations
  *  can be performed on a memory row.  Once the limit is reached, the row must
- *  be erased before it is written to again.
+ *  be erased before it is written to again. It is the developer's
+ *  responsibility to ensure that this limit is not exceeded in their
+ *  applications. The developer may also opt to use the third party SPIFFS
+ *  library implementation supported by TIRTOS which does track writes.
  *
  *  \note The 83 write limit persists through device reset & power cycles.
- *  If 60 write operations were performed on a memory page & the device is
+ *  If 60 write operations were performed on a memory row & the device is
  *  reset; the page can still only be written to 23 more times before it must
  *  be erased.
  *
@@ -84,7 +87,7 @@
  *    * scoreboard - a buffer provided by the application where each byte
  *      represents how many times a page has been written to.
  *    * scoreboardSize - number of bytes in the scoreboard.
- *    *flashPageSize - number of bytes in a flash page (i.e. 128 or 256)
+ *    * flashPageSize - number of bytes in a flash page (i.e. 128 or 256)
  *
  *  When configured correctly, the scoreboard can be viewed in a memory browser.
  *
@@ -165,36 +168,36 @@ extern const NVS_FxnTable NVSCC26XX_fxnTable;
  *  required in the application's linker script to achieve the same
  *  result.
  *
- *  The example below defines a char array \p flashBuf. Preprocessor logic is
+ *  The example below defines a char array @p flashBuf. Preprocessor logic is
  *  used so that this example will work with either the TI, IAR or GCC tools.
- *  For the TI and IAR tools, pragmas are used to place \p flashBuf at the
+ *  For the TI and IAR tools, pragmas are used to place @p flashBuf at the
  *  flash location specified by #NVSCC26XX_HWAttrs.regionBase.
  *
- *  For the GCC tool, the \p flashBuf array is placed into a named linker output
- *  section, \p .nvs. This section is defined in the application's linker
+ *  For the GCC tool, the @p flashBuf array is placed into a named linker output
+ *  section, @p .nvs. This section is defined in the application's linker
  *  script. The section placement command is carefully chosen to only RESERVE
- *  space for the \p flashBuf array, and not to actually initialize it during
+ *  space for the @p flashBuf array, and not to actually initialize it during
  *  the application load process, thus preserving the content of flash.
  *
- *  Regardless of tool chain, the \p flashBuf array in the example below is
- *  placed at the \p NVS_REGIONS_BASE address and has an overall size of
- *  \p REGIONSIZE bytes. Theoretically, the memory reserved by \p flashBuf can
- *  be divided into four separate regions, each having a size of \p SECTORSIZE
+ *  Regardless of tool chain, the @p flashBuf array in the example below is
+ *  placed at the @p NVS_REGIONS_BASE address and has an overall size of
+ *  @p REGIONSIZE bytes. Theoretically, the memory reserved by @p flashBuf can
+ *  be divided into four separate regions, each having a size of @p SECTORSIZE
  *  bytes. Each region must always be aligned to the flash sector size,
- *  \p SECTORSIZE. This example below shows two regions defined.
+ *  @p SECTORSIZE. This example below shows two regions defined.
  *
  *  An array of two #NVSCC26XX_HWAttrs structures is defined. Each index
  *  of this structure defines a region of on-chip flash memory. Both regions
- *  utilize memory reserved by the \p flashBuf array. The two regions do not
+ *  utilize memory reserved by the @p flashBuf array. The two regions do not
  *  overlap or share the same physical memory locations. The two regions do
  *  however exist adjacent to each other in physical memory. The first
- *  region is defined as starting at the \p NVS_REGIONS_BASE address and has a
- *  size equal to the flash sector size, as defined by \p SECTORSIZE. The second
+ *  region is defined as starting at the @p NVS_REGIONS_BASE address and has a
+ *  size equal to the flash sector size, as defined by @p SECTORSIZE. The second
  *  region is defined as starting at (NVS_REGIONS_BASE + SECTORSIZE), that is,
- *  the \p NVS_REGIONS_BASE address offset by \p SECTORSIZE bytes. The second region
+ *  the @p NVS_REGIONS_BASE address offset by @p SECTORSIZE bytes. The second region
  *  has a size equal to (3 * SECTORSIZE) bytes. These regions together fully
- *  occupy \p REGIONSIZE bytes of physical on-chip flash memory as reserved by
- *  the \p flashBuf array.
+ *  occupy @p REGIONSIZE bytes of physical on-chip flash memory as reserved by
+ *  the @p flashBuf array.
  *
  *  @code
  *  #define NVS_REGIONS_BASE 0x1B000
@@ -259,7 +262,7 @@ extern const NVS_FxnTable NVSCC26XX_fxnTable;
  *  @endcode
  *
  *  Example GCC linker script file content. This example places an output
- *  section, \p .nvs, at the memory address \p 0x1B000. The \p NOLOAD directive
+ *  section, @p .nvs, at the memory address @p 0x1B000. The @p NOLOAD directive
  *  is used so that this memory is not initialized during program load to the
  *  target.
  *
@@ -290,7 +293,8 @@ extern const NVS_FxnTable NVSCC26XX_fxnTable;
  *
  *    * flashPageSize - number of bytes in a flash page (i.e. 128 or 256)
  */
-typedef struct NVSCC26XX_HWAttrs {
+typedef struct
+{
     void        *regionBase;    /*!< The regionBase field specifies the base
                                      address of the on-chip flash memory to be
                                      managed. The regionBase must be aligned
@@ -321,7 +325,8 @@ typedef struct NVSCC26XX_HWAttrs {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct NVSCC26XX_Object {
+typedef struct
+{
     bool        opened;             /* Has this region been opened */
 } NVSCC26XX_Object;
 

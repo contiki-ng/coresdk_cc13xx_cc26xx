@@ -107,7 +107,9 @@ static const GPTimerCC26XX_LUT GPT_LUT[GPT_PARTS_COUNT] =
 static const GPTimerCC26XX_Params GPT_DefaultParams =
 {
     .width          = GPT_CONFIG_32BIT,
-    .mode           = GPT_MODE_PERIODIC_UP,
+    .mode           = GPT_MODE_PERIODIC,
+    .matchTiming    = GPTimerCC26XX_SET_MATCH_NEXT_CLOCK,
+    .direction      = GPTimerCC26XX_DIRECTION_UP,
     .debugStallMode = GPTimerCC26XX_DEBUG_STALL_OFF,
 };
 
@@ -576,11 +578,36 @@ static void GPTimerCC26XX_initHw(GPTimerCC26XX_Handle handle, const GPTimerCC26X
 {
     /* Get the pointer to the object and hwAttrs */
     GPTimerCC26XX_HWAttrs const *hwAttrs = handle->hwAttrs;
-    GPTimerCC26XX_Object        *object  = handle->object;
+    GPTimerCC26XX_Object const  *object  = handle->object;
 
     TimerSetConfig(hwAttrs->baseAddr, object->width);
     uint32_t timer = GPT_LUT[handle->timerPart].map;
-    TimerSetMode(hwAttrs->baseAddr, timer, params->mode);
+
+    uint32_t mode = (uint32_t) params->mode;
+
+    if (params->matchTiming == GPTimerCC26XX_SET_MATCH_ON_TIMEOUT)
+    {
+        /* Same bit position is also valid for timer B in the TBMR register. */
+        mode |= GPT_TAMR_TAMRSU_TOUPDATE;
+    }
+    else
+    {
+        /* Same bit position is also valid for timer B in the TBMR register. */
+        mode |= GPT_TAMR_TAMRSU_CYCLEUPDATE;
+    }
+
+    if (params->direction == GPTimerCC26XX_DIRECTION_UP)
+    {
+        /* Same bit position also valid for timer B in the TBMR register. */
+        mode |= GPT_TAMR_TACDIR_UP;
+    }
+    else
+    {
+        /* Same bit position also valid for timer B in the TBMR register. */
+        mode |= GPT_TAMR_TACDIR_DOWN;
+    }
+
+    TimerSetMode(hwAttrs->baseAddr, timer, mode);
 
     GPTimerCC26XX_configureDebugStall(handle, params->debugStallMode);
 }
@@ -615,7 +642,7 @@ static void GPTimerCC26XX_resetHw(GPTimerCC26XX_Handle handle)
     uint8_t i;
     for (i = 0; i < GPT_NUM_INTS; i++)
     {
-        regMask |= GPT_LUT[handle->timerPart].interrupts[i];
+        regMask |= (uint32_t)(GPT_LUT[handle->timerPart].interrupts[i]);
     }
     HWREG(ui32Base + GPT_O_IMR) &= ~regMask;
 

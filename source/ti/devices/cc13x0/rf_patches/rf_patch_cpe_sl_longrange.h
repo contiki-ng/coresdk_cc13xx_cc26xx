@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       rf_patch_cpe_sl_longrange.h
-*  Revised:        $Date: 2018-05-07 15:02:01 +0200 (ma, 07 mai 2018) $
-*  Revision:       $Revision: 18438 $
+*  Revised:        $Date: 2018-11-02 11:52:02 +0100 (fr, 02 nov 2018) $
+*  Revision:       $Revision: 18756 $
 *
 *  Description: RF core patch for CC13x0 SimpleLink Long Range
 *
@@ -71,17 +71,18 @@ extern "C"
 
 
 CPE_PATCH_TYPE patchImageSlLongrange[] = {
-   0x2100053d,
-   0x21000459,
-   0x2100048d,
+   0x21000569,
+   0x2100045d,
    0x21000491,
-   0x210004b9,
-   0x21000621,
-   0x210006d1,
-   0x210006f9,
-   0x210004ed,
-   0x2100073b,
-   0x2100075d,
+   0x21000495,
+   0x210004bd,
+   0x2100064d,
+   0x210006fd,
+   0x21000725,
+   0x2100052b,
+   0x210004f1,
+   0x21000767,
+   0x21000789,
    0x4710b5f8,
    0x460eb5f8,
    0x25012100,
@@ -108,9 +109,9 @@ CPE_PATCH_TYPE patchImageSlLongrange[] = {
    0x467082c8,
    0x47001c80,
    0x40086200,
-   0x210007c8,
+   0x210007f4,
    0x08080f07,
-   0xf872f000,
+   0xf886f000,
    0x0a0a9905,
    0xd1092a6c,
    0x61782008,
@@ -123,19 +124,29 @@ CPE_PATCH_TYPE patchImageSlLongrange[] = {
    0x4801b510,
    0x00004700,
    0x00000989,
-   0xf810f000,
+   0xf818f000,
    0x2950b2e1,
    0x2804d00b,
    0x2806d001,
-   0x4906d107,
+   0x490dd107,
    0x07c97809,
    0x7821d103,
    0xd4000709,
-   0xbdfe2002,
-   0x4902b5fe,
-   0x00004708,
+   0x490a2002,
+   0x210c780a,
+   0xd0024211,
+   0x22804908,
+   0xbdfe600a,
+   0x4907b5fe,
+   0x48044708,
+   0x22407801,
+   0x70014391,
+   0x47004804,
    0x210000c8,
+   0x21000117,
+   0xe000e200,
    0x0000ccf1,
+   0x0000d103,
    0x4605b5ff,
    0x4c03b085,
    0xb5ff4720,
@@ -148,7 +159,7 @@ CPE_PATCH_TYPE patchImageSlLongrange[] = {
    0x2900d006,
    0x4a11d006,
    0xf7ff4628,
-   0xbd70ff7b,
+   0xbd70ff67,
    0xe000480f,
    0x2405480f,
    0xd8034283,
@@ -160,14 +171,14 @@ CPE_PATCH_TYPE patchImageSlLongrange[] = {
    0x4906d007,
    0x31802300,
    0xf7ff4628,
-   0xb2e0ff65,
+   0xb2e0ff51,
    0x4902bd70,
    0x316c4b04,
    0x0000e7f6,
    0x00005c83,
    0x2386bca0,
    0x230d8300,
-   0x21000798,
+   0x210007c4,
    0x4e1ab5f8,
    0x6b714605,
    0x09cc4819,
@@ -210,7 +221,7 @@ CPE_PATCH_TYPE patchImageSlLongrange[] = {
    0xe0004313,
    0x634b4393,
    0xf7ff491d,
-   0xbd10ff49,
+   0xbd10ff35,
    0x4d1ab538,
    0x28007f28,
    0x481ad127,
@@ -255,7 +266,7 @@ CPE_PATCH_TYPE patchImageSlLongrange[] = {
    0x2100026b,
    0x40046058,
    0x4c03b510,
-   0xfef0f7ff,
+   0xfedcf7ff,
    0x28006820,
    0xbd10d1fa,
    0x40041100,
@@ -308,11 +319,11 @@ CPE_PATCH_TYPE patchImageSlLongrange[] = {
    0xe5e0e3c1,
    0x000000ff,
 };
-#define _NWORD_PATCHIMAGE_SL_LONGRANGE 236
+#define _NWORD_PATCHIMAGE_SL_LONGRANGE 247
 
 #define _NWORD_PATCHSYS_SL_LONGRANGE 0
 
-#define _IRQ_PATCH_0 0x2100064d
+#define _IRQ_PATCH_0 0x21000679
 
 
 #ifndef _SL_LONGRANGE_SYSRAM_START
@@ -358,9 +369,10 @@ PATCH_FUN_SPEC void configureSlLongrangePatch(void)
    pPatchTab[107] = 5;
    pPatchTab[65] = 6;
    pPatchTab[13] = 7;
-   pPatchTab[45] = 8;
-   pPatchTab[48] = 9;
-   pParserPatchTab[0] = 10;
+   pPatchTab[43] = 8;
+   pPatchTab[45] = 9;
+   pPatchTab[48] = 10;
+   pParserPatchTab[0] = 11;
 
    pIrqPatch[1] = _IRQ_PATCH_0;
 }

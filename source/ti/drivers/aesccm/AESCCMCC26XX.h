@@ -39,13 +39,15 @@
  *  This file should only be included in the board file to fill the AESCCM_config
  *  struct.
  *
+ *  # Hardware Accelerator #
  *  The CC26XX family has a dedicated hardware crypto accelerator. It is capable
  *  of multiple AES block cipher modes of operation including CCM. Only one operation
  *  can be carried out on the accerator at a time. Mutual exclusion is
  *  implemented at the driver level and coordinated between all drivers relying on
- *  the accelerator. It is transparent to the application and only noted ensure
+ *  the accelerator. It is transparent to the application and only noted to ensure that
  *  sensible access timeouts are set.
  *
+ *  # Key Store #
  *  The CC26XX crypto module contains a key store. The only way to load a key into
  *  the AES accelerator is to first load it into the key store. To guarantee availability
  *  of open key locations in the key store for AES operations, the last two key
@@ -56,11 +58,15 @@
  *  than store keys. Support for pre-loading keys into the key store and using them
  *  in an AES operation is not supported in this driver.
  *
+ *  # Implementation Limitations
+ *  - Only plaintext CryptoKeys are supported by this implementation.
+ *  - This implementation does not support internal generation of IVs
+ *
+ *  # Runtime Parameter Validation #
  *  The driver implementation does not perform runtime checks for most input parameters.
  *  Only values that are likely to have a stochastic element to them are checked (such
  *  as whether a driver is already open). Higher input paramter validation coverage is
  *  achieved by turning on assertions when compiling the driver.
- *
  */
 
 #ifndef ti_drivers_aesccm_AESCCMCC26XX__include
@@ -76,9 +82,6 @@ extern "C" {
 #include <ti/drivers/Power.h>
 #include <ti/drivers/AESCCM.h>
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
-
-#include <ti/devices/DeviceFamily.h>
-#include DeviceFamily_constructPath(driverlib/crypto.h)
 
 #include <ti/drivers/dpl/HwiP.h>
 #include <ti/drivers/dpl/SwiP.h>
@@ -104,12 +107,6 @@ typedef struct AESCCMCC26XX_HWAttrs {
         HWI's with priority 0 ignore the HWI dispatcher to support zero-latency interrupts, thus invalidating the critical sections in this driver.
     */
     uint8_t    intPriority;
-    /*! @brief AESCCM SWI priority.
-        The higher the number, the higher the priority.
-        The minimum is 0 and the maximum is 15 by default.
-        The maximum can be reduced to save RAM by adding or modifying Swi.numPriorities in the kernel configuration file.
-    */
-    uint32_t   swiPriority;
 } AESCCMCC26XX_HWAttrs;
 
 /*!
@@ -119,13 +116,14 @@ typedef struct AESCCMCC26XX_HWAttrs {
  */
 typedef struct AESCCMCC26XX_Object {
     bool                            isOpen;
+    bool                            operationInProgress;
+    bool                            operationCanceled;
     int_fast16_t                    returnStatus;
     AESCCM_ReturnBehavior           returnBehavior;
     AESCCM_OperationType            operationType;
     uint32_t                        semaphoreTimeout;
     AESCCM_CallbackFxn              callbackFxn;
     AESCCM_Operation                *operation;
-    SwiP_Struct                     callbackSwi;
 } AESCCMCC26XX_Object;
 
 #ifdef __cplusplus

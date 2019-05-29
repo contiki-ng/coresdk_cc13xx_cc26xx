@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Texas Instruments Incorporated
+ * Copyright (c) 2015-2018, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -198,14 +198,6 @@ __STATIC_INLINE uint32_t PIN_ctz(uint32_t x) {
 /** \} (PINCC26XX_IONAMES)
  */
 
-
-// Array of handles, one per pin (pin id is index)
-extern PIN_Handle PIN_HandleTable[];
-
-// Number of pins available on device
-extern uint32_t PIN_NumPins;
-
-
 /// @brief Fast/efficient version of #PIN_getInputValue()
 __STATIC_INLINE uint32_t PINCC26XX_getInputValue(PIN_Id pinId) {
     return (HWREG(GPIO_BASE + GPIO_O_DIN31_0) >> pinId) & 1;
@@ -300,12 +292,17 @@ extern PIN_Config PINCC26XX_getConfig(PIN_Id pinId);
  *                 - #PINCC26XX_WAKEUP_POSEDGE
  *                 - #PINCC26XX_WAKEUP_NEGEDGE
  *  @return #PIN_SUCCESS if successful, else error code
- *  @todo   Define properly
+ *
  *  @par Usage
  *       @code
  *       PIN_setWakeup(NULL, PIN_ID(9)|PIN_WAKEUP_NEGEDGE);
  *       Power_shutdown(0, 0);
  *       @endcode
+ *
+ *  @note A wake-up event to wake up from shutdown is not detected until
+ *  the device reaches shutdown. Wake-up events happening after a shutdown
+ *  is initiated but before actual shutdown are not captured and thus will
+ *  not cause the device to wake up.
  */
 extern PIN_Status PINCC26XX_setWakeup(const PIN_Config aPinCfg[]);
 

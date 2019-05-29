@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -60,6 +60,8 @@ extern HwiP_Struct          CryptoResourceCC26XX_hwi;
 
 void CryptoResourceCC26XX_constructRTOSObjects(void);
 void CryptoResourceCC26XX_destructRTOSObjects(void);
+bool CryptoResourceCC26XX_acquireLock();
+void CryptoResourceCC26XX_releaseLock();
 
 #ifdef __cplusplus
 }

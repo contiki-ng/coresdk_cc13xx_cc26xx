@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -40,6 +40,7 @@
  *  #include <ti/drivers/crypto/CryptoCC26XX.h>
  *  @endcode
  *
+ *  @anchor ti_drivers_Crypto_Overview
  *  # Overview #
  *
  *  The CryptoCC26XX driver simplifies reading and writing to the CryptoCC26XX
@@ -47,8 +48,8 @@
  *  These include blocking and polling. A timeout can be configured in blocking mode.
  *  The driver supports encryption and decryption for both AES-ECB and AES-CCM.
  *
- *  ## General Behavior #
- *  For code examples, see [Use Cases](@ref CRYPTO_USE_CASES) below.
+ *  @anchor ti_drivers_Crypto_Usage
+ *  ## Usage #
  *
  *  @warning     The application should not attempt to encrypt a value stored in flash or use a
  *               key stored in flash if the application might switch to the XOSC_HF,
@@ -95,7 +96,7 @@
  *    will fail and return ::CRYPTOCC26XX_STATUS_ERROR.
  *  - The key locations available are defined in ::CryptoCC26XX_KeyLocation.
  *  - To select any available key location, call the allocate function with key
- *    location set to ::CRYPTOCC26XX_KEY_ANY.
+ *    location set to CRYPTOCC26XX_KEY_ANY.
  *  .
  *  ### Performing a crypto operation #
  *  - The supported crypto operations are defined in ::CryptoCC26XX_Operation.
@@ -144,19 +145,6 @@
  *  keyStore in ::CryptoCC26XX_Object will be cleared and the clients will have to
  *  allocate the key over again.
  *
- *  ## Supported Functions ##
- *  | API function                   | Description                                                                          |
- *  |------------------------------- |--------------------------------------------------------------------------------------|
- *  | CryptoCC26XX_init()            | Function to initializes bios modules needed by CryptoCC26XX module                   |
- *  | CryptoCC26XX_open()            | Initialize Crypto and get crypto handle                                              |
- *  | CryptoCC26XX_close()           | Disable Crypto HW and destruct bios modules used by transactions                     |
- *  | CryptoCC26XX_Params_init()     | Initialize Crypto parameters                                                         |
- *  | CryptoCC26XX_Transac_init()    | Initialize Crypto transaction                                                        |
- *  | CryptoCC26XX_allocateKey()     | Allocate a key for current client and write key into one of the Crypto RAM locations |
- *  | CryptoCC26XX_releaseKey()      | Release/deallocate a key for current client                                          |
- *  | CryptoCC26XX_transact()        | Start a crypto operation in blocking mode                                            |
- *  | CryptoCC26XX_transactPolling() | Start a crypto operation in polling mode                                             |
- *
  *  ## Unsupported functionality:
  *  Functionality that currently not supported:
  *  - Callback mode
@@ -174,7 +162,57 @@
  *  | ::CRYPTOCC26XX_OP_AES_CBC_ENCRYPT             | AES-CBC encryption                                                        |
  *  | ::CRYPTOCC26XX_OP_AES_CBC_DECRYPT             | AES-CBC decryption                                                        |
  *
- *  ## Use Cases @anchor CRYPTO_USE_CASES ##
+ *  @anchor ti_drivers_Crypto_Synopsis
+ *  ## Synopsis
+ *  @anchor ti_drivers_Crypto_Synopsis_Code
+ *  @code
+ *  // Import Crypto Driver definitions
+ *  #include <ti/drivers/Crypto.h>
+ *
+ *  // Define name for Crypto channel index
+ *  #define Crypto_INSTANCE 0
+ *
+ *  // Initialize Crypto driver
+ *  CryptoCC26XX_init();
+ *
+ *
+ *  // Attempt to open CryptoCC26XX.
+ *  handle = CryptoCC26XX_open(Board_CRYPTO0, false, NULL);
+ *
+ *  keyIndex = CryptoCC26XX_allocateKey(handle, ecbExample.keyLocation,
+ *                                     (const uint32_t *) ecbExample.key);
+ *
+ *  // Initialize transaction
+ *  CryptoCC26XX_Transac_init((CryptoCC26XX_Transaction *) &trans, CRYPTOCC26XX_OP_AES_ECB_ENCRYPT);
+ *
+ *  // Setup transaction
+ *  trans.keyIndex         = keyIndex;
+ *  trans.msgIn            = (uint32_t *) ecbExample.clearText;
+ *  trans.msgOut           = (uint32_t *) ecbExample.msgOut;
+ *
+ *
+ *  // Encrypt the plaintext with AES ECB
+ *  status = CryptoCC26XX_transact(handle, (CryptoCC26XX_Transaction *) &trans);
+ *
+ *  // Initialize transaction
+ *  CryptoCC26XX_Transac_init((CryptoCC26XX_Transaction *) &trans, CRYPTOCC26XX_OP_AES_ECB_DECRYPT);
+ *
+ *  // Setup transaction
+ *  trans.keyIndex         = keyIndex;
+ *  trans.msgIn            = (uint32_t *) ecbExample.msgOut;
+ *  trans.msgOut           = (uint32_t *) ecbExample.clearText;
+ *
+ *  // Decrypt the plaintext with AES ECB
+ *  status = CryptoCC26XX_transact(handle, (CryptoCC26XX_Transaction *) &trans);
+ *
+ *  CryptoCC26XX_releaseKey(handle, &keyIndex);
+ *
+ *  Crypto_close(handle);
+ *
+ *  @endcode
+ *
+ *  @anchor ti_drivers_Crypto_Examples
+ *  ## Examples ##
  *  ### AES ECB operation #
  *  Perform a crypto operation with AES-ECB in ::CRYPTOCC26XX_MODE_BLOCKING.
 
@@ -493,8 +531,6 @@ typedef enum CryptoCC26XX_KeyLocation {
     CRYPTOCC26XX_KEY_3,
     CRYPTOCC26XX_KEY_4,
     CRYPTOCC26XX_KEY_5,
-    CRYPTOCC26XX_KEY_6,
-    CRYPTOCC26XX_KEY_7,
     CRYPTOCC26XX_KEY_COUNT,
     CRYPTOCC26XX_KEY_ANY,
 } CryptoCC26XX_KeyLocation;
@@ -723,17 +759,11 @@ typedef struct CryptoCC26XX_Object {
     CryptoCC26XX_KeyStore     keyStore;         /*!< Key store for Crypto */
     CryptoCC26XX_Transaction *currentTransact;  /*!< Pointer to ongoing transaction */
 
-    /* Crypto transaction pointers for CryptoCC26XX_MODE_CALLBACK */
-    CryptoCC26XX_Transaction *headPtr;          /*!< head pointer for queued transactions */
-    CryptoCC26XX_Transaction *tailPtr;          /*!< tail pointer for queued transactions */
-
     /*! Crypto notification object */
     Power_NotifyObj           cryptoNotiObj;
 
     /* CryptoCC26XX SYS/BIOS objects */
     HwiP_Struct hwi;      /*!< Hwi object */
-    SemaphoreP_Struct                    transSem; /*!< CryptoCC26XX transaction semaphore */
-    SemaphoreP_Struct                    waitSem;  /*!< Semaphore for use in blocking mode*/
 } CryptoCC26XX_Object;
 
 /*! @brief CryptoCC26XX Global Configuration */

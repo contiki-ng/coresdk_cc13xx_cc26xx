@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,14 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** ============================================================================
+/*!****************************************************************************
  *  @file       AESCCM.h
  *
  *  @brief      AESCCM driver header
  *
  * @warning     This is a beta API. It may change in future releases.
  *
+ *  @anchor ti_drivers_AESCCM_Overview
  *  # Overview #
  *  The Counter with CBC-MAC (CCM) mode of operation is a generic
  *  authenticated encryption block cipher mode.  It can be used with
@@ -96,12 +97,17 @@
  *  It can be used to authenticate packet headers.
  *
  *  After the encryption operation, the ciphertext contains the encrypted
- *  data. The message authentication code (MAC) is also provided in encrypted form.
- *  The MAC can be seen as an encrypted fingerprint of the message header and content.
- *  Practically, the fact that the MAC is encrypted has no impact on the use
- *  of CCM from an application standpoint. It may be ignored as an implementation
- *  detail of CCM.
+ *  data. The message authentication code (MAC) is also provided.
  *
+ *  # CCM Variations #
+ *  The AESCCM driver supports both classic CCM as defined by NIST SP 800-38C and
+ *  the CCM* variant used in IEEE 802.15.4.
+ *  CCM* allows for unauthenticated encryption using CCM by permitting a MAC length
+ *  of 0. It also imposes the requirement that the MAC length be embedded in
+ *  the nonce used for each message if the MAC length varies within the protocol
+ *  using CCM*.
+ *
+ *  @anchor ti_drivers_AESCCM_Usage
  *  # Usage #
  *
  *  ## Before starting a CCM operation #
@@ -138,48 +144,44 @@
  *  After the CCM operation completes, the application should either start another operation
  *  or close the driver by calling AESCCM_close()
  *
- *  ## AESCCM Driver Configuration #
+ *  @anchor ti_drivers_AESCCM_Synopsis
+ *  ## Synopsis
  *
- *  In order to use the AESCCM APIs, the application is required
- *  to provide device-specific AESCCM configuration in the Board.c file.
- *  The AESCCM driver interface defines a configuration data structure:
- *
+ *  @anchor ti_drivers_AESCCM_Synopsis_Code
  *  @code
- *  typedef struct AESCCM_Config_ {
- *      void                   *object;
- *      void          const    *hwAttrs;
- *  } AESCCM_Config;
+ *
+ *  // Import AESCCM Driver definitions
+ *  #include <ti/drivers/AESCCM.h>
+ *
+ *  // Define name for AESCCM channel index
+ *  #define AESCCM_INSTANCE 0
+ *
+ *  AESCCM_init();
+ *
+ *  handle = AESCCM_open(AESCCM_INSTANCE, NULL);
+ *
+ *  // Initialize symmetric key
+ *  CryptoKeyPlaintext_initKey(&cryptoKey, keyingMaterial, sizeof(keyingMaterial));
+ *
+ *  // Set up AESCCM_Operation
+ *  AESCCM_Operation_init(&operation);
+ *  operation.key               = &cryptoKey;
+ *  operation.aad               = aad;
+ *  operation.aadLength         = sizeof(aad);
+ *  operation.input             = plaintext;
+ *  operation.output            = ciphertext;
+ *  operation.inputLength       = sizeof(plaintext);
+ *  operation.nonce             = nonce;
+ *  operation.nonceLength       = sizeof(nonce);
+ *  operation.mac               = mac;
+ *  operation.macLength         = sizeof(mac);
+ *
+ *  encryptionResult = AESCCM_oneStepEncrypt(handle, &operation);
+ *
+ *  AESCCM_close(handle);
  *  @endcode
  *
- *  The application must declare an array of AESCCM_Config elements, named
- *  AESCCM_config[].  Each element of AESCCM_config[] must be populated with
- *  pointers to a device specific AESCCM driver implementation's driver object and
- *  hardware attributes.  The hardware attributes define properties such
- *  as the AESCCM peripheral's base address.
- *  Each element in AESCCM_config[] corresponds to an AESCCM instance
- *  and none of the elements should have NULL pointers.
- *  There is no correlation between the index and the
- *  peripheral designation (such as AESCCM0 or AESCCM1).  For example, it is
- *  possible to use AESCCM_config[0] for AESCCM1. Multiple drivers and driver
- *  instances may all access the same underlying hardware. This is transparent
- *  to the application. Mutual exclusion is performed automatically by the
- *  drivers as necessary.
- *
- *  Because the AESCCM configuration is very device dependent, you will need to
- *  check the doxygen for the device specific AESCCM implementation.  There you
- *  will find a description of the AESCCM hardware attributes.  Please also
- *  refer to the Board.c file of any of your examples to see the AESCCM
- *  configuration.
- *
- *  ## AESCCM Parameters
- *
- *  The #AESCCM_Params structure is passed to the AESCCM_open() call.  If NULL
- *  is passed for the parameters, AESCCM_open() uses default parameters.
- *  A #AESCCM_Params structure is initialized with default values by passing
- *  it to AESCCM_Params_init().
- *  Some of the AESCCM parameters are described below.  To see brief descriptions
- *  of all the parameters, see #AESCCM_Params.
- *
+ *  @anchor ti_drivers_AESCCM_Examples
  *  ## Examples
  *
  *  ### Single call CCM encryption + authentication with plaintext CryptoKey in blocking return mode #
@@ -332,27 +334,8 @@ extern "C" {
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
-/**
- *  @defgroup AESCCM_CONTROL AESCCM_control command and status codes
- *  These AESCCM macros are reservations for AESCCM.h
- *  @{
- */
-
 /*!
- * Common AESCCM_control command code reservation offset.
- * AESCCM driver implementations should offset command codes with AESCCM_CMD_RESERVED
- * growing positively
- *
- * Example implementation specific command codes:
- * @code
- * #define AESCCMXYZ_CMD_COMMAND0     AESCCM_CMD_RESERVED + 0
- * #define AESCCMXYZ_CMD_COMMAND1     AESCCM_CMD_RESERVED + 1
- * @endcode
- */
-#define AESCCM_CMD_RESERVED           (32)
-
-/*!
- * Common AESCCM_control status code reservation offset.
+ * Common AESCCM status code reservation offset.
  * AESCCM driver implementations should offset status codes with
  * AESCCM_STATUS_RESERVED growing negatively.
  *
@@ -364,13 +347,6 @@ extern "C" {
  * @endcode
  */
 #define AESCCM_STATUS_RESERVED        (-32)
-
-/**
- *  @defgroup AESCCM_STATUS Status Codes
- *  AESCCM_STATUS_* macros are general status codes returned by AESCCM functions
- *  @{
- *  @ingroup AESCCM_CONTROL
- */
 
 /*!
  * @brief   Successful status code.
@@ -389,15 +365,6 @@ extern "C" {
 #define AESCCM_STATUS_ERROR           (-1)
 
 /*!
- * @brief   An error status code returned by AESCCM_control() for undefined
- * command codes.
- *
- * AESCCM_control() returns AESCCM_STATUS_UNDEFINEDCMD if the control code is not
- * recognized by the driver implementation.
- */
-#define AESCCM_STATUS_UNDEFINEDCMD    (-2)
-
-/*!
  * @brief   An error status code returned if the hardware or software resource
  * is currently unavailable.
  *
@@ -405,7 +372,7 @@ extern "C" {
  * many clients can simultaneously perform operations. This status code is returned
  * if the mutual exclusion mechanism signals that an operation cannot currently be performed.
  */
-#define AESCCM_STATUS_RESOURCE_UNAVAILABLE (-3)
+#define AESCCM_STATUS_RESOURCE_UNAVAILABLE (-2)
 
 /*!
  * @brief   An error status code returned if the MAC provided by the application for
@@ -414,31 +381,17 @@ extern "C" {
  * This code is returned by AESCCM_oneStepDecrypt() if the verification of the
  * MAC fails.
  */
-#define AESCCM_STATUS_MAC_INVALID (-4)
+#define AESCCM_STATUS_MAC_INVALID (-3)
 
-
-/** @}*/
-
-/** @}*/
-
-/**
- *  @defgroup AESCCM_CMD Command Codes
- *  AESCCM_CMD_* macros are general command codes for AESCCM_control(). Not all AESCCM
- *  driver implementations support these command codes.
- *  @{
- *  @ingroup AESCCM_CONTROL
+/*!
+ *  @brief  The ongoing operation was canceled.
  */
-
-/* Add AESCCM_CMD_<commands> here */
-
-/** @}*/
-
-/** @}*/
+#define AESCCM_STATUS_CANCELED (-4)
 
 /*!
  *  @brief  A handle that is returned from an AESCCM_open() call.
  */
-typedef struct AESCCM_Config_    *AESCCM_Handle;
+typedef struct AESCCM_Config    *AESCCM_Handle;
 
 /*!
  * @brief   The way in which CCM function calls return after performing an
@@ -461,7 +414,7 @@ typedef struct AESCCM_Config_    *AESCCM_Handle;
  * |AESCCM_RETURN_BEHAVIOR_POLLING  | X     | X     | X     |
  *
  */
-typedef enum AESCCM_ReturnBehavior_ {
+typedef enum {
     AESCCM_RETURN_BEHAVIOR_CALLBACK = 1,    /*!< The function call will return immediately while the
                                              *   CCM operation goes on in the background. The registered
                                              *   callback function is called after the operation completes.
@@ -481,7 +434,7 @@ typedef enum AESCCM_ReturnBehavior_ {
 /*!
  *  @brief  Enum for the direction of the CCM operation.
  */
-typedef enum AESCCM_Mode_ {
+typedef enum {
     AESCCM_MODE_ENCRYPT = 1,
     AESCCM_MODE_DECRYPT = 2,
 } AESCCM_Mode;
@@ -490,7 +443,7 @@ typedef enum AESCCM_Mode_ {
  *  @brief  Struct containing the parameters required for encrypting/decrypting
  *          and authenticating/verifying a message.
  */
-typedef struct AESCCM_Operation_ {
+typedef struct {
    CryptoKey                *key;                       /*!< A previously initialized CryptoKey */
    uint8_t                  *aad;                       /*!< A buffer of length \c aadLength containing additional
                                                          *   authentication data to be authenticated/verified but not
@@ -531,7 +484,9 @@ typedef struct AESCCM_Operation_ {
                                                          *   Valid nonce lengths are [7, 8, ... 13].
                                                          */
    uint8_t                  macLength;                  /*!< Length of \c mac in bytes.
-                                                         *   Valid MAC lengths are [0, 1, ... 16].
+                                                         *   Valid MAC lengths are [0, 4, 6, 8, 10, 12, 14, 16].
+                                                         *   A length of 0 disables authentication and verification. This is
+                                                         *   only permitted when using CCM*.
                                                          */
    bool                     nonceInternallyGenerated;   /*!< When true, the nonce buffer passed into the AESCCM_setupEncrypt()
                                                          *   and AESCCM_oneStepEncrypt() functions will be overwritten with a
@@ -542,7 +497,7 @@ typedef struct AESCCM_Operation_ {
 /*!
  *  @brief  Enum for the operation types supported by the driver.
  */
-typedef enum AESCCM_OperationType_ {
+typedef enum {
     AESCCM_OPERATION_TYPE_ENCRYPT = 1,
     AESCCM_OPERATION_TYPE_DECRYPT = 2,
 } AESCCM_OperationType;
@@ -558,7 +513,7 @@ typedef enum AESCCM_OperationType_ {
  *
  *  @sa     AESCCM_init()
  */
-typedef struct AESCCM_Config_ {
+typedef struct AESCCM_Config {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -594,7 +549,7 @@ typedef void (*AESCCM_CallbackFxn) (AESCCM_Handle handle,
  *
  *  @sa     AESCCM_Params_init()
  */
-typedef struct AESCCM_Params_ {
+typedef struct {
     AESCCM_ReturnBehavior   returnBehavior;             /*!< Blocking, callback, or polling return behavior */
     AESCCM_CallbackFxn      callbackFxn;                /*!< Callback function pointer */
     uint32_t                timeout;                    /*!< Timeout before the driver returns an error in
@@ -667,47 +622,6 @@ AESCCM_Handle AESCCM_open(uint_least8_t index, AESCCM_Params *params);
 void AESCCM_close(AESCCM_Handle handle);
 
 /*!
- *  @brief  Function performs implementation specific features on a given
- *          AESCCM_Handle.
- *
- *  Commands for AESCCM_control can originate from AESCCM.h or from implementation
- *  specific AESCCM*.h (_AESCCMCC26XX.h_, _AESCCMMSP432.h_, etc.. ) files.
- *  While commands from AESCCM.h are API portable across driver implementations,
- *  not all implementations may support all these commands.
- *  Conversely, commands from driver implementation specific AESCCM*.h files add
- *  unique driver capabilities but are not API portable across all AESCCM driver
- *  implementations.
- *
- *  Commands supported by AESCCM.h follow an AESCCM_CMD_\<cmd\> naming
- *  convention.<br>
- *  Commands supported by AESCCM*.h follow an AESCCM*_CMD_\<cmd\> naming
- *  convention.<br>
- *  Each control command defines @b arg differently. The types of @b arg are
- *  documented with each command.
- *
- *  See @ref AESCCM_CMD "AESCCM_control command codes" for command codes.
- *
- *  See @ref AESCCM_STATUS "AESCCM_control return status codes" for status codes.
- *
- *  @pre    AESCCM_open() has to be called first.
- *
- *  @param  handle      An AESCCM handle returned from AESCCM_open()
- *
- *  @param  cmd         AESCCM.h or AESCCM*.h commands.
- *
- *  @param  args        An optional R/W (read/write) command argument
- *                      accompanied with cmd
- *
- *  @return Implementation specific return codes. Negative values indicate
- *          unsuccessful operations.
- *
- *  @sa     AESCCM_open()
- */
-int_fast16_t AESCCM_control(AESCCM_Handle handle, uint32_t cmd, void *args);
-
-
-
-/*!
  *  @brief  Function to initialize an AESCCM_Operation struct to its defaults
  *
  *  @param  operationStruct     A pointer to an AESCCM_Operation structure for
@@ -729,7 +643,10 @@ void AESCCM_Operation_init(AESCCM_Operation *operationStruct);
  *
  *  @param  [in] operationStruct        A pointer to a struct containing the parameters required to perform the operation.
  *
- *  @return A status code
+ *  @retval #AESCCM_STATUS_SUCCESS               The operation succeeded.
+ *  @retval #AESCCM_STATUS_ERROR                 The operation failed.
+ *  @retval #AESCCM_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
+ *  @retval #AESCCM_STATUS_CANCELED              The operation was canceled.
  *
  *  @sa     AESCCM_oneStepDecrypt()
  */
@@ -747,11 +664,30 @@ int_fast16_t AESCCM_oneStepEncrypt(AESCCM_Handle handle, AESCCM_Operation *opera
  *
  *  @param  [in] operationStruct        A pointer to a struct containing the parameters required to perform the operation.
  *
- *  @return A status code
+ *  @retval #AESCCM_STATUS_SUCCESS               The operation succeeded.
+ *  @retval #AESCCM_STATUS_ERROR                 The operation failed.
+ *  @retval #AESCCM_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
+ *  @retval #AESCCM_STATUS_CANCELED              The operation was canceled.
+ *  @retval #AESCCM_STATUS_MAC_INVALID           The provided MAC did no match the recomputed one.
  *
  *  @sa     AESCCM_oneStepEncrypt()
  */
 int_fast16_t AESCCM_oneStepDecrypt(AESCCM_Handle handle, AESCCM_Operation *operationStruct);
+
+/*!
+ *  @brief Cancels an ongoing AESCCM operation.
+ *
+ *  Asynchronously cancels an AESCCM operation. Only available when using
+ *  AESCCM_RETURN_BEHAVIOR_CALLBACK or AESCCM_RETURN_BEHAVIOR_BLOCKING.
+ *  The operation will terminate as though an error occured. The
+ *  return status code of the operation will be AESCCM_STATUS_CANCELED.
+ *
+ *  @param  [in] handle Handle of the operation to cancel
+ *
+ *  @retval #AESCBC_STATUS_SUCCESS               The operation was canceled.
+ *  @retval #AESCBC_STATUS_ERROR                 The operation was not canceled.
+ */
+int_fast16_t AESCCM_cancelOperation(AESCCM_Handle handle);
 
 #ifdef __cplusplus
 }

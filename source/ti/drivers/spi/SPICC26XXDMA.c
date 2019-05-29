@@ -86,6 +86,9 @@ static void SPICC26XXDMA_initHw(SPI_Handle handle);
 static bool SPICC26XXDMA_initIO(SPI_Handle handle);
 static void SPICC26XXDMA_flushFifos(SPI_Handle handle);
 
+/* Internal status macro */
+static inline bool txFifoEmpty(SPICC26XXDMA_HWAttrs const *hwAttrs);
+
 /* Internal power functions */
 static int spiPostNotify(unsigned int eventType, uintptr_t eventArg, uintptr_t clientArg);
 
@@ -244,7 +247,7 @@ static inline void spiPollingTransfer(SPICC26XXDMA_Object *object,
         }
     }
 
-    while (SSIBusy(hwAttrs->baseAddr)) {}
+    while (!txFifoEmpty(hwAttrs)) {}
 }
 
 /*!
@@ -888,9 +891,16 @@ bool SPICC26XXDMA_transfer(SPI_Handle handle, SPI_Transaction *transaction)
     /* Enable the SPI module */
     SSIEnable(hwAttrs->baseAddr);
 
-    /* Polling transfer if BLOCKING mode & transaction->count < threshold */
+    /*
+     * Polling transfer if BLOCKING mode & transaction->count < threshold
+     * Slaves not allowed to use polling unless timeout is disabled
+     */
     if (object->transferMode == SPI_MODE_BLOCKING &&
-        transaction->count < hwAttrs->minDmaTransferSize) {
+        transaction->count < hwAttrs->minDmaTransferSize &&
+        (object->mode == SPI_MASTER ||
+        object->transferTimeout == SPI_WAIT_FOREVER)) {
+        HwiP_restore(key);
+
         spiPollingTransfer(object, hwAttrs, transaction);
 
         /* Disable the SPI */
@@ -1175,4 +1185,12 @@ static int spiPostNotify(unsigned int eventType, uintptr_t eventArg, uintptr_t c
     SPICC26XXDMA_initHw(spiHandle);
 
     return Power_NOTIFYDONE;
+}
+
+/*
+ *  ======== txFifoEmpty ========
+ */
+static inline bool txFifoEmpty(SPICC26XXDMA_HWAttrs const *hwAttrs)
+{
+    return(HWREG(hwAttrs->baseAddr + SSI_O_SR) & SSI_SR_TFE);
 }

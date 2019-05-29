@@ -196,6 +196,7 @@ typedef struct PowerCC26X2_ModuleState {
     List_List notifyList;           /*!< Event notification list */
     uint32_t constraintMask;        /*!< Aggregate constraints mask */
     ClockP_Struct clockObj;         /*!< Clock object for scheduling wakeups */
+    ClockP_Struct calibrationClock; /*!< Clock object for scheduling wakeups */
     HwiP_Struct oscHwi;             /*!< Hwi object for oscillator stabilisation */
     HwiP_Struct tdcHwi;             /*!< Hwi object for RCOSC calibration */
     int32_t nDeltaFreqCurr;         /*!< RCOSC calibration variable */

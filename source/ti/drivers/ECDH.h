@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,14 +29,14 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/*!
+/*!****************************************************************************
  * @file ECDH.h
  *
  * @brief TI Driver for Elliptic Curve Diffie-Hellman key agreement scheme.
  *
- *
  * @warning This is a beta API. It may change in future releases.
  *
+ * @anchor ti_drivers_ECDH_Overview
  * # Overview #
  *
  * Elliptic Curve Diffie-Hellman (ECDH) is a key agreement scheme between
@@ -73,6 +73,7 @@
  * add additional computation to increase a system's resistance against brute
  * force or dictionary attacks.
  *
+ * @anchor ti_drivers_ECDH_Usage
  * # Usage #
  *
  * ## Before starting an ECDH operation #
@@ -158,48 +159,53 @@
  * | Montgomery         | [X, Y]                | 2 * Curve Param Length    |
  * | Edwards            | [X, Y]                | 2 * Curve Param Length    |
  *
- * ## ECDH Driver Configuration #
- *
- * In order to use the ECDH APIs, the application is required
- * to provide device-specific ECDH configuration in the Board.c file.
- * The ECDH driver interface defines a configuration data structure:
- *
+ * @anchor ti_drivers_ECDH_Synopsis
+ * ## Synopsis
+ * @anchor ti_drivers_ECDH_Synopsis_Code
  * @code
- * typedef struct ECDH_Config_ {
- *     void                   *object;
- *     void          const    *hwAttrs;
- * } ECDH_Config;
+ * // Import ECDH Driver definitions
+ * #include <ti/drivers/ECDH.h>
+ *
+ * ECDH_init();
+ *
+ * // Since we are using default ECDH_Params, we just pass in NULL for that parameter.
+ * ecdhHandle = ECDH_open(0, NULL);
+ *
+ * // Initialize myPrivateKey and myPublicKey
+ * CryptoKeyPlaintext_initKey(&myPrivateKey, myPrivateKeyingMaterial, sizeof(myPrivateKeyingMaterial));
+ * CryptoKeyPlaintext_initBlankKey(&myPublicKey, myPublicKeyingMaterial, sizeof(myPublicKeyingMaterial));
+ *
+ * ECDH_OperationGeneratePublicKey_init(&operationGeneratePublicKey);
+ * operationGeneratePublicKey.curve            = &ECCParams_NISTP256;
+ * operationGeneratePublicKey.myPrivateKey     = &myPrivateKey;
+ * operationGeneratePublicKey.myPublicKey      = &myPublicKey;
+ *
+ * // Generate the keying material for myPublicKey and store it in myPublicKeyingMaterial
+ * operationResult = ECDH_generatePublicKey(ecdhHandle, &operationGeneratePublicKey);
+ *
+ * // Now send the content of myPublicKeyingMaterial to theother party,
+ * // receive their public key, and copy their public keying material to theirPublicKeyingMaterial
+ *
+ * // Initialise their public CryptoKey and the shared secret CryptoKey
+ * CryptoKeyPlaintext_initKey(&theirPublicKey, theirPublicKeyingMaterial, sizeof(theirPublicKeyingMaterial));
+ * CryptoKeyPlaintext_initBlankKey(&sharedSecret, sharedSecretKeyingMaterial, sizeof(sharedSecretKeyingMaterial));
+ *
+ * // The ECC_NISTP256 struct is provided in ti/drivers/types/EccParams.h and the corresponding device-specific implementation
+ * ECDH_OperationComputeSharedSecret_init(&operationComputeSharedSecret);
+ * operationComputeSharedSecret.curve              = &ECCParams_NISTP256;
+ * operationComputeSharedSecret.myPrivateKey       = &myPrivateKey;
+ * operationComputeSharedSecret.theirPublicKey     = &theirPublicKey;
+ * operationComputeSharedSecret.sharedSecret       = &sharedSecret;
+ *
+ * // Compute the shared secret and copy it to sharedSecretKeyingMaterial
+ * operationResult = ECDH_computeSharedSecret(ecdhHandle, &operationComputeSharedSecret);
+ *
+ * // Close the driver
+ * ECDH_close(ecdhHandle);
+ *
  * @endcode
  *
- * The application must declare an array of ECDH_Config elements, named
- * ECDH_config[].  Each element of ECDH_config[] must be populated with
- * pointers to a device specific ECDH driver implementation's
- * driver object, hardware attributes.  The hardware attributes
- * define properties such as the ECDH peripheral's base address.
- * Each element in ECDH_config[] corresponds to
- * an ECDH instance, and none of the elements should have NULL pointers.
- * There is no correlation between the index and the
- * peripheral designation (such as ECDH0 or ECDH1).  For example, it is
- * possible to use ECDH_config[0] for ECDH1. Multiple drivers and driver
- * instances may all access the same underlying hardware. This is transparent
- * to the application. Mutual exclusion is performed automatically by the
- * drivers as necessary.
- *
- * Because the ECDH configuration is very device dependent, you will need to
- * check the doxygen for the device specific ECDH implementation.  There you
- * will find a description of the ECDH hardware attributes.  Please also
- * refer to the Board.c file of any of your examples to see the ECDH
- * configuration.
- *
- * ## ECDH Parameters #
- *
- * The #ECDH_Params structure is passed to the ECDH_open() call.  If NULL
- * is passed for the parameters, ECDH_open() uses default parameters.
- * An #ECDH_Params structure is initialized with default values by passing
- * it to ECDH_Params_init().
- * Some of the ECDH parameters are described below. To see brief descriptions
- * of all the parameters, see #ECDH_Params.
- *
+ * @anchor ti_drivers_ECDH_Examples
  * # Examples #
  *
  * ## ECDH exchange with plaintext CryptoKeys #
@@ -306,27 +312,8 @@ extern "C" {
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 #include <ti/drivers/cryptoutils/ecc/ECCParams.h>
 
-/**
- *  @defgroup ECDH_CONTROL ECDH_control command and status codes
- *  These ECC macros are reservations for ECC.h
- *  @{
- */
-
 /*!
- * Common ECDH_control command code reservation offset.
- * ECC driver implementations should offset command codes with ECDH_CMD_RESERVED
- * growing positively
- *
- * Example implementation specific command codes:
- * @code
- * #define ECCXYZ_CMD_COMMAND0     ECDH_CMD_RESERVED + 0
- * #define ECCXYZ_CMD_COMMAND1     ECDH_CMD_RESERVED + 1
- * @endcode
- */
-#define ECDH_CMD_RESERVED           (32)
-
-/*!
- * Common ECDH_control status code reservation offset.
+ * Common ECDH status code reservation offset.
  * ECC driver implementations should offset status codes with
  * ECDH_STATUS_RESERVED growing negatively.
  *
@@ -338,13 +325,6 @@ extern "C" {
  * @endcode
  */
 #define ECDH_STATUS_RESERVED        (-32)
-
-/**
- *  @defgroup ECDH_STATUS Status Codes
- *  ECDH_STATUS_* macros are general status codes returned by ECC functions
- *  @{
- *  @ingroup ECDH_CONTROL
- */
 
 /*!
  * @brief   Successful status code.
@@ -363,15 +343,6 @@ extern "C" {
 #define ECDH_STATUS_ERROR           (-1)
 
 /*!
- * @brief   An error status code returned by ECDH_control() for undefined
- * command codes.
- *
- * ECDH_control() returns ECDH_STATUS_UNDEFINEDCMD if the control code is not
- * recognized by the driver implementation.
- */
-#define ECDH_STATUS_UNDEFINEDCMD    (-2)
-
-/*!
  * @brief   An error status code returned if the hardware or software resource
  * is currently unavailable.
  *
@@ -379,7 +350,7 @@ extern "C" {
  * many clients can simultaneously perform operations. This status code is returned
  * if the mutual exclusion mechanism signals that an operation cannot currently be performed.
  */
-#define ECDH_STATUS_RESOURCE_UNAVAILABLE (-3)
+#define ECDH_STATUS_RESOURCE_UNAVAILABLE (-2)
 
 /*!
  * @brief   The result of the operation is the point at infinity.
@@ -387,7 +358,7 @@ extern "C" {
  * The operation yielded the point at infinity on this curve. This point is
  * not permitted for further use in ECC operations.
  */
-#define ECDH_STATUS_POINT_AT_INFINITY (-4)
+#define ECDH_STATUS_POINT_AT_INFINITY (-3)
 
 /*!
  * @brief   The private key passed in is larger than the order of the curve.
@@ -395,7 +366,7 @@ extern "C" {
  * Private keys must be integers in the interval [1, n - 1], where n is the
  * order of the curve.
  */
-#define ECDH_STATUS_PRIVATE_KEY_LARGER_EQUAL_ORDER (-5)
+#define ECDH_STATUS_PRIVATE_KEY_LARGER_EQUAL_ORDER (-4)
 
 /*!
  * @brief   The private key passed in is zero.
@@ -403,8 +374,7 @@ extern "C" {
  * Private keys must be integers in the interval [1, n - 1], where n is the
  * order of the curve.
  */
-#define ECDH_STATUS_PRIVATE_KEY_ZERO (-6)
-
+#define ECDH_STATUS_PRIVATE_KEY_ZERO (-5)
 
 /*!
  * @brief   The public key of the other party does not lie upon the curve.
@@ -412,7 +382,7 @@ extern "C" {
  * The public key received from the other party does not lie upon the agreed upon
  * curve.
  */
-#define ECDH_STATUS_PUBLIC_KEY_NOT_ON_CURVE (-7)
+#define ECDH_STATUS_PUBLIC_KEY_NOT_ON_CURVE (-6)
 
 /*!
  * @brief   A coordinate of the public key of the other party is too large.
@@ -421,30 +391,17 @@ extern "C" {
  * the prime of the curve. This implies that the point was not correctly
  * generated on that curve.
  */
-#define ECDH_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME (-8)
+#define ECDH_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME (-7)
 
-/** @}*/
-
-/** @}*/
-
-/**
- *  @defgroup ECDH_CMD Command Codes
- *  ECDH_CMD_* macros are general command codes for ECDH_control(). Not all ECC
- *  driver implementations support these command codes.
- *  @{
- *  @ingroup ECDH_CONTROL
+/*!
+ *  @brief  The ongoing operation was canceled.
  */
-
-/* Add ECDH_CMD_<commands> here */
-
-/** @}*/
-
-/** @}*/
+#define ECDH_STATUS_CANCELED (-8)
 
 /*!
  *  @brief  A handle that is returned from an ECDH_open() call.
  */
-typedef struct ECDH_Config_    *ECDH_Handle;
+typedef struct ECDH_Config  *ECDH_Handle;
 
 /*!
  * @brief   The way in which ECC function calls return after performing an
@@ -467,7 +424,7 @@ typedef struct ECDH_Config_    *ECDH_Handle;
  * |ECDH_RETURN_BEHAVIOR_POLLING    | X     | X     | X     |
  *
  */
-typedef enum ECDH_ReturnBehavior_ {
+typedef enum {
     ECDH_RETURN_BEHAVIOR_CALLBACK = 1,      /*!< The function call will return immediately while the
                                              *   ECC operation goes on in the background. The registered
                                              *   callback function is called after the operation completes.
@@ -496,7 +453,7 @@ typedef enum ECDH_ReturnBehavior_ {
  *
  *  @sa     ECDH_init()
  */
-typedef struct ECDH_Config_ {
+typedef struct ECDH_Config {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -507,7 +464,7 @@ typedef struct ECDH_Config_ {
 /*!
  *  @brief  Struct containing the parameters required to generate a public key.
  */
-typedef struct ECDH_OperationGeneratePublicKey_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;             /*!< A pointer to the elliptic curve parameters for myPrivateKey */
     const CryptoKey                 *myPrivateKey;      /*!< A pointer to the private ECC key from which the new public
                                                          *   key will be generated. (maybe your static key)
@@ -520,7 +477,7 @@ typedef struct ECDH_OperationGeneratePublicKey_ {
 /*!
  *  @brief  Struct containing the parameters required to compute the shared secret.
  */
-typedef struct ECDH_OperationComputeSharedSecret_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;             /*!< A pointer to the elliptic curve parameters for myPrivateKey.
                                                          *   If ECDH_generateKey() was used, this should be the same private key.
                                                          */
@@ -538,7 +495,7 @@ typedef struct ECDH_OperationComputeSharedSecret_ {
 /*!
  *  @brief  Union containing pointers to all supported operation structs.
  */
-typedef union ECDH_Operation_ {
+typedef union {
     ECDH_OperationGeneratePublicKey      *generatePublicKey;    /*!< A pointer to an ECDH_OperationGeneratePublicKey struct */
     ECDH_OperationComputeSharedSecret    *computeSharedSecret;  /*!< A pointer to an ECDH_OperationGeneratePublicKey struct */
 } ECDH_Operation;
@@ -546,7 +503,7 @@ typedef union ECDH_Operation_ {
 /*!
  *  @brief  Enum for the operation types supported by the driver.
  */
-typedef enum ECDH_OperationType_ {
+typedef enum {
     ECDH_OPERATION_TYPE_GENERATE_PUBLIC_KEY = 1,
     ECDH_OPERATION_TYPE_COMPUTE_SHARED_SECRET = 2,
 } ECDH_OperationType;
@@ -582,7 +539,7 @@ typedef void (*ECDH_CallbackFxn) (ECDH_Handle handle,
  *
  *  @sa     ECDH_Params_init()
  */
-typedef struct ECDH_Params_ {
+typedef struct {
     ECDH_ReturnBehavior     returnBehavior;             /*!< Blocking, callback, or polling return behavior */
     ECDH_CallbackFxn        callbackFxn;                /*!< Callback function pointer */
     uint32_t                timeout;                    /*!< Timeout of the operation */
@@ -653,45 +610,6 @@ ECDH_Handle ECDH_open(uint_least8_t index, ECDH_Params *params);
 void ECDH_close(ECDH_Handle handle);
 
 /*!
- *  @brief  Function performs implementation specific features on a given
- *          ECDH_Handle.
- *
- *  Commands for ECDH_control can originate from ECC.h or from implementation
- *  specific ECC*.h (_ECCCC26XX.h_, _EECCSP432.h_, etc.. ) files.
- *  While commands from ECC.h are API portable across driver implementations,
- *  not all implementations may support all these commands.
- *  Conversely, commands from driver implementation specific ECC*.h files add
- *  unique driver capabilities but are not API portable across all ECC driver
- *  implementations.
- *
- *  Commands supported by ECC.h follow an ECDH_CMD_\<cmd\> naming
- *  convention.<br>
- *  Commands supported by ECC*.h follow an ECC*_CMD_\<cmd\> naming
- *  convention.<br>
- *  Each control command defines @b arg differently. The types of @b arg are
- *  documented with each command.
- *
- *  See @ref ECDH_CMD "ECDH_control command codes" for command codes.
- *
- *  See @ref ECDH_STATUS "ECDH_control return status codes" for status codes.
- *
- *  @pre    ECDH_open() has to be called first.
- *
- *  @param  handle      A ECC handle returned from ECDH_open()
- *
- *  @param  cmd         ECC.h or ECC*.h commands.
- *
- *  @param  args        An optional R/W (read/write) command argument
- *                      accompanied with cmd
- *
- *  @return Implementation specific return codes. Negative values indicate
- *          unsuccessful operations.
- *
- *  @sa     ECDH_open()
- */
-int_fast16_t ECDH_control(ECDH_Handle handle, uint32_t cmd, void *args);
-
-/*!
  *  @brief  Function to initialize an ECDH_OperationGeneratePublicKey struct to its defaults
  *
  *  @param  operation   A pointer to ECDH_OperationGeneratePublicKey structure for
@@ -725,6 +643,13 @@ void ECDH_OperationComputeSharedSecret_init(ECDH_OperationComputeSharedSecret *o
  *
  *  @post ECDH_computeSharedSecret()
  *
+ *  @retval #ECDH_STATUS_SUCCESS                The operation succeeded.
+ *  @retval #ECDH_STATUS_ERROR                  The operation failed.
+ *  @retval #ECDH_STATUS_RESOURCE_UNAVAILABLE   The required hardware resource was not available. Try again later.
+ *  @retval #ECDH_STATUS_CANCELED               The operation was canceled.
+ *  @retval #ECDH_STATUS_POINT_AT_INFINITY      The computed public key is the point at infinity.
+ *  @retval #ECDH_STATUS_PRIVATE_KEY_ZERO       The provided private key is zero.
+ *
  */
 int_fast16_t ECDH_generatePublicKey(ECDH_Handle handle, ECDH_OperationGeneratePublicKey *operation);
 
@@ -740,8 +665,29 @@ int_fast16_t ECDH_generatePublicKey(ECDH_Handle handle, ECDH_OperationGeneratePu
  *  @pre Call ECDH_OperationComputeSharedSecret_init() on \c operation.
  *       Generate a shared secret off-chip or using ECDH_generatePublicKey()
  *
+ *  @retval #ECDH_STATUS_SUCCESS                        The operation succeeded.
+ *  @retval #ECDH_STATUS_ERROR                          The operation failed.
+ *  @retval #ECDH_STATUS_RESOURCE_UNAVAILABLE           The required hardware resource was not available. Try again later.
+ *  @retval #ECDH_STATUS_CANCELED                       The operation was canceled.
+ *  @retval #ECDH_STATUS_PUBLIC_KEY_NOT_ON_CURVE        The foreign public key is not a point on the specified curve.
+ *  @retval #ECDH_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME   One of the public key coordinates is larger the the curve's prime.
  */
 int_fast16_t ECDH_computeSharedSecret(ECDH_Handle handle, ECDH_OperationComputeSharedSecret *operation);
+
+/*!
+ *  @brief Cancels an ongoing ECDH operation.
+ *
+ *  Asynchronously cancels an ECDH operation. Only available when using
+ *  ECDH_RETURN_BEHAVIOR_CALLBACK or ECDH_RETURN_BEHAVIOR_BLOCKING.
+ *  The operation will terminate as though an error occured. The
+ *  return status code of the operation will be ECDH_STATUS_CANCELED.
+ *
+ *  @param  handle Handle of the operation to cancel
+ *
+ *  @retval #ECDH_STATUS_SUCCESS               The operation was canceled.
+ *  @retval #ECDH_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
+ */
+int_fast16_t ECDH_cancelOperation(ECDH_Handle handle);
 
 #ifdef __cplusplus
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -633,6 +633,9 @@ typedef struct UARTCC26XX_Object {
     SemaphoreP_Struct     writeSem;           /*!< UART write semaphore*/
     SemaphoreP_Struct     readSem;            /*!< UART read semaphore */
     ClockP_Struct         txFifoEmptyClk;     /*!< UART TX FIFO empty clock */
+
+    bool uartRxPowerConstraint;
+    bool uartTxPowerConstraint;
 } UARTCC26XX_Object, *UARTCC26XX_Handle;
 
 #ifdef __cplusplus

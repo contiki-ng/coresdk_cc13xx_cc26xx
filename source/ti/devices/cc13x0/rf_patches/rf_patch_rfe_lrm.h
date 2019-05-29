@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       rf_patch_rfe_lrm.h
-*  Revised:        $Date: 2017-05-04 12:39:32 +0200 (to, 04 mai 2017) $
-*  Revision:       $Revision: 17776 $
+*  Revised:        $Date: 2019-01-31 15:04:25 +0100 (to, 31 jan 2019) $
+*  Revision:       $Revision: 18842 $
 *
 *  Description: RF core patch for CC13x0 Legacy Long Range Mode
 *
-*  Copyright (c) 2015-2017, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
