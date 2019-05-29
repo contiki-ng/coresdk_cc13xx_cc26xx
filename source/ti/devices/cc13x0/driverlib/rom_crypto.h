@@ -1,10 +1,10 @@
 /******************************************************************************
 *  Filename:       rom_crypto.h
-*  Revised:        2017-08-16 15:13:43 +0200 (Wed, 16 Aug 2017)
-*  Revision:       49593
+*  Revised:        2018-09-17 09:24:56 +0200 (Mon, 17 Sep 2018)
+*  Revision:       52624
 *
-*  Description:    This header file is the API to the AES, ECC and SHA256
-*                  functions built into ROM on the CC26xx.
+*  Description:    This header file is the API to the crypto functions
+*                  built into ROM on the CC13xx/CC26xx.
 *
 *  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
 *  All rights reserved.

@@ -240,7 +240,8 @@ ADCBuf_Handle ADCBufCC26XX_open(ADCBuf_Handle handle,
     paramsUnion.timerParams.width           = GPT_CONFIG_16BIT;
     paramsUnion.timerParams.mode            = GPT_MODE_PERIODIC_UP;
     paramsUnion.timerParams.debugStallMode  = GPTimerCC26XX_DEBUG_STALL_OFF;
-    object->timerHandle                     = GPTimerCC26XX_open(hwAttrs->gpTimerUnit, &paramsUnion.timerParams);
+    /* Open position 0 of the GPT config table - by convention this is timer 0A. */
+    object->timerHandle                     = GPTimerCC26XX_open(0, &paramsUnion.timerParams);
 
     if (object->timerHandle == NULL) {
         /* We did not manage to open the GPTimer we wanted */
@@ -302,13 +303,11 @@ ADCBuf_Handle ADCBufCC26XX_open(ADCBuf_Handle handle,
  */
 static void ADCBufCC26XX_hwiFxn (uintptr_t arg) {
     ADCBufCC26XX_Object            *object;
-    ADCBufCC26XX_HWAttrs const     *hwAttrs;
     ADCBuf_Conversion              *conversion;
     uint32_t                        intStatus;
 
-    /* Get the pointer to the object, hwAttrs and current conversion*/
+    /* Get the pointer to the object and current conversion*/
     object     = ((ADCBuf_Handle)arg)->object;
-    hwAttrs    = ((ADCBuf_Handle)arg)->hwAttrs;
     conversion = object->currentConversion;
 
     /* Set activeSampleBuffer to primary as default */
@@ -335,7 +334,7 @@ static void ADCBufCC26XX_hwiFxn (uintptr_t arg) {
         }
     }
     /* Clear DMA interrupts */
-    UDMACC26XX_clearInterrupt(object->udmaHandle, (1 << UDMA_CHAN_AUX_ADC) | (hwAttrs->gptDMAChannelMask));
+    UDMACC26XX_clearInterrupt(object->udmaHandle, (1 << UDMA_CHAN_AUX_ADC) | (1 << UDMA_CHAN_TIMER0_A));
 
     /* Get the status of the ADC_IRQ line and ADC_DONE */
     intStatus = HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGS) & (AUX_EVCTL_EVTOMCUFLAGS_ADC_IRQ | AUX_EVCTL_EVTOMCUFLAGS_ADC_DONE);
@@ -748,11 +747,9 @@ static void ADCBufCC26XX_loadDMAControlTableEntry(ADCBuf_Handle handle, ADCBuf_C
  */
 static void ADCBufCC26XX_configGPTDMA(ADCBuf_Handle handle, ADCBuf_Conversion *conversion) {
     ADCBufCC26XX_Object             *object;
-    ADCBufCC26XX_HWAttrs const      *hwAttrs;
 
-    /* Get the pointer to the object and hwAttrs */
+    /* Get the pointer to the object */
     object = handle->object;
-    hwAttrs = handle->hwAttrs;
 
     /* Set configure control table entry */
     ADCBufCC26XX_loadGPTDMAControlTableEntry(handle, conversion, true);
@@ -763,7 +760,7 @@ static void ADCBufCC26XX_configGPTDMA(ADCBuf_Handle handle, ADCBuf_Conversion *c
     }
 
     /* Enable the channels */
-    UDMACC26XX_channelEnable(object->udmaHandle, hwAttrs->gptDMAChannelMask);
+    UDMACC26XX_channelEnable(object->udmaHandle, 1 << UDMA_CHAN_TIMER0_A);
 
     /* Enable event signal */
     HWREG(object->timerHandle->hwAttrs->baseAddr + GPT_O_DMAEV) = GPT_DMAEV_TATODMAEN;
@@ -815,11 +812,9 @@ static void ADCBufCC26XX_loadGPTDMAControlTableEntry(ADCBuf_Handle handle, ADCBu
  */
 static void ADCBufCC26XX_cleanADC(ADCBuf_Handle handle) {
     ADCBufCC26XX_Object            *object;
-    ADCBufCC26XX_HWAttrs const     *hwAttrs;
 
-    /* Get the pointer to the object and hwAttrs */
+    /* Get the pointer to the object */
     object = handle->object;
-    hwAttrs = handle->hwAttrs;
 
     /* Stop the timer to stop generating triggers */
     GPTimerCC26XX_stop(object->timerHandle);
@@ -834,7 +829,7 @@ static void ADCBufCC26XX_cleanADC(ADCBuf_Handle handle) {
     }
 
     /* Disable the UDMA channels */
-    UDMACC26XX_channelDisable(object->udmaHandle, (1 << UDMA_CHAN_AUX_ADC) | (hwAttrs->gptDMAChannelMask));
+    UDMACC26XX_channelDisable(object->udmaHandle, (1 << UDMA_CHAN_AUX_ADC) | (1 << UDMA_CHAN_TIMER0_A));
 
     /* Deallocate pins */
     PIN_close(object->pinHandle);

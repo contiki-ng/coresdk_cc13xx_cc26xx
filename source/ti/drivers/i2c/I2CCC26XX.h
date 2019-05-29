@@ -73,6 +73,11 @@
  * After I2C operation has ended:
  *   - Release system dependencies for I2C by calling I2C_close().
  *
+ * ### Known Issue #
+ * @warning The I2C may transmit a single data byte in the event that the
+ * I2C slave address is not acknowledged (NACK'd). This is due to a known
+ * hardware bug.
+ *
  * ## Error handling #
  * If an error occurs during operation:
  *   - The I2C Master transmits a stop bit and remains enabled.
@@ -91,6 +96,13 @@
  *    - When I2C_transfer() completes, either after success or error, I2C
  *      remains enabled, and the device can enter standby.
  *    - After I2C_close() call: I2C is disabled
+ *    - If the device goes into idle during a transaction, the state of
+ *      SDA is undefined in the time between the transaction completing and
+ *      the device waking up. SCL will go low until the device wakes up and
+ *      starts another transaction or releases the bus. If this is a problem
+ *      for another device on the I2C bus, you can set a power constraint for
+ *      #PowerCC26XX_DISALLOW_IDLE before the transaction and release it
+ *      when the transaction completes.
  *
  * ## Supported Functions ##
  *  | Generic API Function | API Function             | Description                                       |

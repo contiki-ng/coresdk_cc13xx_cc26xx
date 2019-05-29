@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       rfc.c
-*  Revised:        2018-01-30 17:42:58 +0100 (Tue, 30 Jan 2018)
-*  Revision:       51371
+*  Revised:        2018-08-08 11:04:37 +0200 (Wed, 08 Aug 2018)
+*  Revision:       52334
 *
 *  Description:    Driver for the RF Core.
 *
@@ -176,7 +176,8 @@ RFCSynthPowerDown(void)
 // Reset previously patched CPE RAM to a state where it can be patched again
 //
 //*****************************************************************************
-void RFCCpePatchReset(void)
+void
+RFCCpePatchReset(void)
 {
     uint8_t *pPatchTab  = (uint8_t *) (_CPERAM_START + _PARSER_PATCH_TAB_OFFSET);
     uint32_t *pIrqPatch = (uint32_t *)(_CPERAM_START + _IRQPATCH_OFFSET);
@@ -215,13 +216,13 @@ RFCOverrideSearch(const uint32_t *pOverride, const uint32_t pattern, const uint3
     return 0xFF;
 }
 
-
 //*****************************************************************************
 //
 // Update the override list based on values stored in FCFG1
 //
 //*****************************************************************************
-uint8_t RFCOverrideUpdate(rfc_radioOp_t *pOpSetup, uint32_t *pParams)
+uint8_t
+RFCOverrideUpdate(rfc_radioOp_t *pOpSetup, uint32_t *pParams)
 {
     /* Handle RTrim values. */
     return RFCRTrim(pOpSetup);
@@ -253,7 +254,8 @@ RFCHwIntGetAndClear(uint32_t ui32Mask)
 // Read RF trim values from FCFG1
 //
 //*****************************************************************************
-void RFCRfTrimRead(rfc_radioOp_t *pOpSetup, rfTrim_t* pRfTrim)
+void
+RFCRfTrimRead(rfc_radioOp_t *pOpSetup, rfTrim_t* pRfTrim)
 {
     // Definition of position and bitmask of divider value
     const uint32_t CONFIG_MISC_ADC_DIVIDER    = 27;
@@ -338,7 +340,8 @@ void RFCRfTrimRead(rfc_radioOp_t *pOpSetup, rfTrim_t* pRfTrim)
 // Write preloaded RF trim values to the CM0
 //
 //*****************************************************************************
-void RFCRfTrimSet(rfTrim_t* pRfTrim)
+void
+RFCRfTrimSet(rfTrim_t* pRfTrim)
 {
     memcpy((void*)&HWREG(0x21000018), (void*)pRfTrim, sizeof(rfTrim_t));
 }
@@ -349,7 +352,8 @@ void RFCRfTrimSet(rfTrim_t* pRfTrim)
 // Check Override RTrim vs FCFG RTrim
 //
 //*****************************************************************************
-uint8_t RFCRTrim(rfc_radioOp_t *pOpSetup)
+uint8_t
+RFCRTrim(rfc_radioOp_t *pOpSetup)
 {
     int32_t   divider;
     uint32_t  fcfg1_rtrim;
@@ -479,7 +483,8 @@ uint8_t RFCRTrim(rfc_radioOp_t *pOpSetup)
 // Function to set VCOLDO reference to voltage mode
 //
 //*****************************************************************************
-void RFCAdi3VcoLdoVoltageMode(bool bEnable)
+void
+RFCAdi3VcoLdoVoltageMode(bool bEnable)
 {
     if (bEnable)
     {

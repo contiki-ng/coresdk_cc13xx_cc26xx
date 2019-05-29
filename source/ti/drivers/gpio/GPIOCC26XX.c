@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,8 +39,6 @@
 #include <ti/drivers/PIN.h>
 #include <ti/drivers/GPIO.h>
 #include <ti/drivers/gpio/GPIOCC26XX.h>
-#include <ti/drivers/Power.h>
-#include <ti/drivers/power/PowerCC26XX.h>
 
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(inc/hw_ints.h)
@@ -123,10 +121,6 @@ const uint32_t outPinStrengths [] = {
     PIN_DRVSTR_MAX     /* GPIO_CFG_OUT_STR_HIGH */
 };
 
-//static const uint32_t powerResources[] = {
-//    PowerCC26XX_PERIPH_GPIOA0,
-//};
-
 #define NUM_PORTS           1
 #define NUM_PINS_PER_PORT   32
 
@@ -136,12 +130,6 @@ const uint32_t outPinStrengths [] = {
  */
 #define getIntTypeNumber(pinConfig) \
     ((pinConfig & GPIO_CFG_INT_MASK) >> GPIO_CFG_INT_LSB)
-
-/* Returns the GPIO power resource ID */
-#define getPowerResource(port) (powerResources[port])
-
-/* Returns GPIO number from the pinConfig */
-#define getGpioNumber(pinConfig) IOD2PIN(pinConfig->ioid))
 
 /* Uninitialized callbackInfo pinIndex */
 #define CALLBACK_INDEX_NOT_CONFIGURED 0xFF
@@ -176,8 +164,7 @@ static PortCallbackInfo gpioCallbackInfo;
 
 /*
  *  Bit mask used to keep track of which pins (IOIDs) of the GPIO objects
- *  in the config structure have interrupts enabled.  This will be used to
- *  restore the interrupts after coming out of LPDS.
+ *  in the config structure have interrupts enabled.
  */
 static uint32_t configIntsEnabledMask = 0;
 
@@ -186,13 +173,88 @@ static uint32_t configIntsEnabledMask = 0;
  */
 static bool initCalled = false;
 
-/* Notification for going into and waking up from LPDS */
-static Power_NotifyObj powerNotifyObj;
-
 extern const GPIOCC26XX_Config GPIOCC26XX_config;
 
-static int powerPostNotify(unsigned int eventType, uintptr_t eventArg,
-    uintptr_t clientArg);
+/*
+ *  ======== getInPinTypesIndex ========
+ */
+static inline uint32_t getInPinTypesIndex(uint32_t pinConfig)
+{
+    uint32_t index;
+
+    index = (pinConfig & GPIO_CFG_IN_TYPE_MASK) >> GPIO_CFG_IN_TYPE_LSB;
+
+    /*
+     * If index is out-of-range, default to 0. This should never
+     * happen, but it's needed to keep Klocwork checker happy.
+     */
+    if (index >= sizeof(inPinTypes) / sizeof(inPinTypes[0])) {
+        index = 0;
+    }
+
+    return (index);
+}
+
+/*
+ *  ======== getInterruptTypeIndex ========
+ */
+static inline uint32_t getInterruptTypeIndex(uint32_t pinConfig)
+{
+    uint32_t index;
+
+    index = (pinConfig & GPIO_CFG_INT_MASK) >> GPIO_CFG_INT_LSB;
+
+    /*
+     * If index is out-of-range, default to 0. This should never
+     * happen, but it's needed to keep Klocwork checker happy.
+     */
+    if (index >= sizeof(interruptType) / sizeof(interruptType[0])) {
+        index = 0;
+    }
+
+    return (index);
+};
+
+/*
+ *  ======== getOutPinTypesIndex ========
+ */
+static inline uint32_t getOutPinTypesIndex(uint32_t pinConfig)
+{
+    uint32_t index;
+
+    index = (pinConfig & GPIO_CFG_OUT_TYPE_MASK) >> GPIO_CFG_OUT_TYPE_LSB;
+
+    /*
+     * If index is out-of-range, default to 0. This should never
+     * happen, but it's needed to keep Klocwork checker happy.
+     */
+    if (index >= sizeof(outPinTypes) / sizeof(outPinTypes[0])) {
+        index = 0;
+    }
+
+    return (index);
+}
+
+/*
+ *  ======== getOutPinStrengthsIndex ========
+ */
+static inline uint32_t getOutPinStrengthsIndex(uint32_t pinConfig)
+{
+    uint32_t index;
+
+    index = (pinConfig & GPIO_CFG_OUT_STRENGTH_MASK) >>
+        GPIO_CFG_OUT_STRENGTH_LSB;
+
+    /*
+     * If index is out-of-range, default to 0. This should never
+     * happen, but it's needed to keep Klocwork checker happy.
+     */
+    if (index >= sizeof(outPinStrengths) / sizeof(outPinStrengths[0])) {
+        index = 0;
+    }
+
+    return (index);
+}
 
 /*
  *  ======== getPinNumber ========
@@ -344,10 +406,6 @@ void GPIO_init()
         }
     }
 
-    Power_registerNotify(&powerNotifyObj,
-            PowerCC26XX_AWAKE_STANDBY,
-            powerPostNotify, (uintptr_t)NULL);
-
     initCalled = true;
 
     SemaphoreP_post(initSem);
@@ -376,6 +434,15 @@ void GPIO_setCallback(uint_least8_t index, GPIO_CallbackFxn callback)
 {
     uint32_t   pinNum;
     PinConfig *config = (PinConfig *) &GPIOCC26XX_config.pinConfigs[index];
+
+    /*
+     * Ignore bogus callback indexes.
+     * Required to prevent out-of-range callback accesses if
+     * there are configured pins without callbacks
+     */
+    if (index >= GPIOCC26XX_config.numberOfCallbacks) {
+        return;
+    }
 
     /*
      * plug the pin index into the corresponding
@@ -419,17 +486,14 @@ int_fast16_t GPIO_setConfig(uint_least8_t index, GPIO_PinConfig pinConfig)
         if (pinConfig & GPIO_CFG_INPUT) {
             /* configure input */
             direction = GPIO_OUTPUT_DISABLE;
-            pinPinConfig = inPinTypes[(pinConfig & GPIO_CFG_IN_TYPE_MASK) >>
-                GPIO_CFG_IN_TYPE_LSB];
+            pinPinConfig = inPinTypes[getInPinTypesIndex(pinConfig)];
         }
         else {
             /* configure output */
             direction = GPIO_OUTPUT_ENABLE;
-            pinPinConfig = outPinTypes[(pinConfig & GPIO_CFG_OUT_TYPE_MASK) >>
-                GPIO_CFG_OUT_TYPE_LSB];
+            pinPinConfig = outPinTypes[getOutPinTypesIndex(pinConfig)];
             pinPinConfig |=
-                outPinStrengths[(pinConfig & GPIO_CFG_OUT_STRENGTH_MASK) >>
-                GPIO_CFG_OUT_STRENGTH_LSB];
+                outPinStrengths[getOutPinStrengthsIndex(pinConfig)];
         }
 
         key = HwiP_disable();
@@ -464,8 +528,7 @@ int_fast16_t GPIO_setConfig(uint_least8_t index, GPIO_PinConfig pinConfig)
         gpioPinConfig |= (pinConfig & GPIO_CFG_INT_MASK);
         GPIOCC26XX_config.pinConfigs[index] = gpioPinConfig;
 
-        pinPinConfig |= interruptType[(pinConfig & GPIO_CFG_INT_MASK) >>
-                        GPIO_CFG_INT_LSB];
+        pinPinConfig |= interruptType[getInterruptTypeIndex(pinConfig)];
         HwiP_restore(key);
     }
 
@@ -538,34 +601,6 @@ void GPIO_write(uint_least8_t index, unsigned int value)
     GPIO_writeMultiDio(IOID2PIN(config->ioid), value);
 
     HwiP_restore(key);
-}
-
-/*
- *  ======== powerNotify ========
- */
-static int powerPostNotify(unsigned int eventType, uintptr_t eventArg,
-    uintptr_t clientArg)
-{
-    unsigned int   i;
-    GPIO_PinConfig config;
-    PinConfig *pconfig;
-
-    if (eventType == PowerCC26XX_AWAKE_STANDBY) {
-        for (i = 0; i < GPIOCC26XX_config.numberOfPinConfigs; i++) {
-            if (!(GPIOCC26XX_config.pinConfigs[i] & GPIO_DO_NOT_CONFIG)) {
-                config = GPIOCC26XX_config.pinConfigs[i];
-
-                GPIO_setConfig(i, config);
-
-                pconfig = (PinConfig *) &GPIOCC26XX_config.pinConfigs[i];
-
-                if (configIntsEnabledMask & (1 << pconfig->ioid)) {
-                    GPIO_enableInt(i);
-                }
-            }
-        }
-    }
-    return (Power_NOTIFYDONE);
 }
 
 /*

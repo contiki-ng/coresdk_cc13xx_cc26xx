@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       osc.h
-*  Revised:        2018-04-18 15:47:09 +0200 (Wed, 18 Apr 2018)
-*  Revision:       51907
+*  Revised:        2019-02-14 09:35:31 +0100 (Thu, 14 Feb 2019)
+*  Revision:       54539
 *
 *  Description:    Defines and prototypes for the system oscillator control.
 *
@@ -212,9 +212,9 @@ OSCClockLossEventDisable( void )
 //! Use this function to set the oscillator source for one or more of the
 //! system source clocks.
 //!
-//! When selecting the high frequency clock source, this function will not do
+//! When selecting the high frequency clock source (OSC_SRC_CLK_HF), this function will not do
 //! the actual switch. Enabling the high frequency XTAL can take several hundred
-//! micro seconds, so the actual switch is split into a separate function,
+//! micro seconds, so the actual switch is done in a separate function, \ref OSCHfSourceSwitch(),
 //! leaving System CPU free to perform other tasks as the XTAL starts up.
 //!
 //! \note The High Frequency (\ref OSC_SRC_CLK_HF) and Medium Frequency
@@ -238,7 +238,7 @@ OSCClockLossEventDisable( void )
 //! - \ref OSC_RCOSC_LF (only when ui32SrcClk is \ref OSC_SRC_CLK_LF)
 //! - \ref OSC_XOSC_LF (only when ui32SrcClk is \ref OSC_SRC_CLK_LF)
 //!
-//! \sa OSCClockSourceGet()
+//! \sa \ref OSCClockSourceGet(), \ref OSCHfSourceSwitch()
 //!
 //! \return None
 //
@@ -299,7 +299,7 @@ OSCHfSourceReady(void)
 //!
 //! When switching the HF clock source the clock period might be prolonged
 //! leaving the clock 'stuck-at' high or low for a few cycles. To ensure that
-//! this does not coincide with a read access to the Flash potentially
+//! this does not coincide with a read access to the Flash, potentially
 //! freezing the device, the HF clock source switch must be executed from ROM.
 //!
 //! \note This function will not return until the clock source has been

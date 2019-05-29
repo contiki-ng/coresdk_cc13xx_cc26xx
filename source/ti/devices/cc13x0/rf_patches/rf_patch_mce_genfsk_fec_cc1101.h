@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       rf_patch_mce_genfsk_fec_cc1101.h
-*  Revised:        $Date: 2017-11-03 15:06:37 +0100 (fr, 03 nov 2017) $
-*  Revision:       $Revision: 18032 $
+*  Revised:        $Date: 2019-01-31 15:04:25 +0100 (to, 31 jan 2019) $
+*  Revision:       $Revision: 18842 $
 *
 *  Description: RF core patch for CC13x0 Generic FSK (with CC1101-compatible FEC and interleaver)
 *
-*  Copyright (c) 2015-2017, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

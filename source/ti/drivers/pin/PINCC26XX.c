@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -178,6 +178,9 @@ static void PINCC26XX_setIoCfg(PIN_Config updateMask, PIN_Config pinCfg) {
             break;
         }
     }
+
+    /* Clear any pending events from the previous pin configuration before we write the new interrupt settings */
+    PINCC26XX_clrPendInterrupt(pinId);
     HWREG(IOC_BASE + IOC_O_IOCFG0 + 4 * pinId) = tmpConfig;
 
     // Update GPIO output value and enable depending on previous output mode (enabled or disabled)
@@ -207,6 +210,9 @@ static void PINCC26XX_setIoCfg(PIN_Config updateMask, PIN_Config pinCfg) {
             }
         }
     }
+
+    /* Clear any events from pin value changes as a result of the new configuration */
+    PINCC26XX_clrPendInterrupt(pinId);
 }
 
 
@@ -364,18 +370,24 @@ PIN_Status PIN_init(const PIN_Config pinConfig[]) {
 
 PIN_Handle PIN_open(PIN_State* state, const PIN_Config pinList[]) {
     uint32_t i;
-    bool pinsAllocated;
-    uint32_t portMask;
+    bool pinsAllocated = true;
+    uint32_t portMask = 0;
     PIN_Id pinId;
+
+    if ((state == NULL) || (pinList == NULL)) {
+        return (NULL);
+    }
 
     // Ensure that only one client at a time can call PIN_open() or PIN_add()
     SemaphoreP_pend(&pinSemaphore, SemaphoreP_WAIT_FOREVER);
 
     // Check whether all pins in pinList are valid and available first
-    for (i = 0, pinsAllocated = true, portMask = 0; pinList && (pinId = PIN_ID(pinList[i])) != PIN_TERMINATE; i++) {
+    for (i = 0; (pinId = PIN_ID(pinList[i])) != PIN_TERMINATE; i++) {
         /* Unassigned pins is allowed, but cannot generate a bitmask. */
         if (pinId != PIN_UNASSIGNED) {
-            if (pinId > pinUpperBound || pinHandleTable[pinId]) {
+            if ((pinId > pinUpperBound) ||
+                    (pinId >= MAX_NUM_PINS) ||  // For Klocwork
+                    pinHandleTable[pinId]) {
                 pinsAllocated = false;
                 break;
             } else {
@@ -395,8 +407,9 @@ PIN_Handle PIN_open(PIN_State* state, const PIN_Config pinList[]) {
         state->userArg = 0;
 
         // Configure I/O pins according to pinList
-        for (i = 0; pinList && (pinId = PIN_ID(pinList[i])) != PIN_TERMINATE; i++) {
-            if (pinId != PIN_UNASSIGNED) {
+        for (i = 0; (pinId = PIN_ID(pinList[i])) != PIN_TERMINATE; i++) {
+            // Check pinId < MAX_NUM_PINS for Klocwork
+            if ((pinId != PIN_UNASSIGNED) && (pinId < MAX_NUM_PINS)) {
                 pinHandleTable[pinId] = state;
                 state->portMask |= (1 << pinId);
                 PIN_setConfig(state, PIN_BM_ALL, pinList[i]);
@@ -415,24 +428,24 @@ PIN_Status PIN_add(PIN_Handle handle, PIN_Config pinCfg) {
     PIN_Id pinId = PIN_ID(pinCfg);
 
     // Check that handle and pinId is valid
-    if (!handle || pinId > pinUpperBound) {
+    if (!handle || (pinId > pinUpperBound) || (pinId >= MAX_NUM_PINS)) {
         return PIN_NO_ACCESS;
     }
 
     // Ensure that only one client at a time can call PIN_open() or PIN_add()
     SemaphoreP_pend(&pinSemaphore, SemaphoreP_WAIT_FOREVER);
 
-        // Check whether pin is available
-        if (pinHandleTable[pinId]) {
-            // Pin already allocated -> do nothing
-            returnStatus = PIN_ALREADY_ALLOCATED;
-        } else {
-            // Allocate pin
-            pinHandleTable[pinId] = handle;
-            handle->portMask |= (1 << pinId);
-            PIN_setConfig(handle, PIN_BM_ALL, pinCfg);
-            returnStatus = PIN_SUCCESS;
-        }
+    // Check whether pin is available
+    if (pinHandleTable[pinId]) {
+        // Pin already allocated -> do nothing
+        returnStatus = PIN_ALREADY_ALLOCATED;
+    } else {
+        // Allocate pin
+        pinHandleTable[pinId] = handle;
+        handle->portMask |= (1 << pinId);
+        PIN_setConfig(handle, PIN_BM_ALL, pinCfg);
+        returnStatus = PIN_SUCCESS;
+    }
 
     SemaphoreP_post(&pinSemaphore);
     return returnStatus;
@@ -514,7 +527,9 @@ uint32_t PIN_getOutputValue(PIN_Id pinId) {
 
 
 PIN_Status PIN_setInterrupt(PIN_Handle handle, PIN_Config pinCfg) {
-    if (PIN_CHKEN && (PIN_ID(pinCfg) > pinUpperBound || pinHandleTable[PIN_ID(pinCfg)] != handle)) {
+    if (PIN_CHKEN && ((PIN_ID(pinCfg) > pinUpperBound) ||
+                      (PIN_ID(pinCfg) >= MAX_NUM_PINS) ||
+                      (pinHandleTable[PIN_ID(pinCfg)] != handle))) {
         // Non-existing pin or pin is not allocated to this client
         return PIN_NO_ACCESS;
     }
@@ -525,7 +540,9 @@ PIN_Status PIN_setInterrupt(PIN_Handle handle, PIN_Config pinCfg) {
 
 
 PIN_Status PIN_clrPendInterrupt(PIN_Handle handle, PIN_Id pinId) {
-    if (PIN_CHKEN && (pinId > pinUpperBound || pinHandleTable[pinId] != handle)) {
+    if (PIN_CHKEN && ((pinId > pinUpperBound) ||
+                      (pinId >= MAX_NUM_PINS) ||
+                      (pinHandleTable[pinId] != handle))) {
         // Non-existing pin or pin is not allocated to this client
         return PIN_NO_ACCESS;
     }
@@ -554,7 +571,9 @@ PIN_Config PIN_getConfig(PIN_Id pinId) {
 
 
 PIN_Status PIN_setConfig(PIN_Handle handle, PIN_Config updateMask, PIN_Config pinCfg) {
-    if (PIN_CHKEN && (PIN_ID(pinCfg) > pinUpperBound || pinHandleTable[PIN_ID(pinCfg)] != handle)) {
+    if (PIN_CHKEN && (PIN_ID(pinCfg) > pinUpperBound ||
+                (PIN_ID(pinCfg) >= MAX_NUM_PINS) ||
+                (pinHandleTable[PIN_ID(pinCfg)] != handle))) {
         // Non-existing pin or pin is not allocated to this client
         return PIN_NO_ACCESS;
     }
@@ -598,7 +617,10 @@ int32_t PINCC26XX_getMux(PIN_Id pinId) {
 
 
 PIN_Status PINCC26XX_setMux(PIN_Handle handle, PIN_Id pinId, int32_t mux) {
-    if (PIN_CHKEN && (pinId > pinUpperBound || pinHandleTable[pinId] != handle)) {
+    // Add check for pinId >= MAX_NUM_PINS for Klocwork
+    if (PIN_CHKEN && ((pinId > pinUpperBound) ||
+                (pinId >= MAX_NUM_PINS) ||
+                (pinHandleTable[pinId] != handle))) {
         // Non-existing pin or pin is not allocated to this client
         return PIN_NO_ACCESS;
     }

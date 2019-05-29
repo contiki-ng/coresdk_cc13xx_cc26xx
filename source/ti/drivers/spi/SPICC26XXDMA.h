@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,7 +29,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** ============================================================================
+/*!*****************************************************************************
  *  @file       SPICC26XXDMA.h
  *
  *  @brief      SPI driver implementation for a CC26XX SPI controller using
@@ -76,16 +76,20 @@
  *     It is safe to call another SPI_transfer() from the transfer callback,
  *     see [Continuous Slave Transfer] (@ref USE_CASE_CST) use case below.
  *   - The SPI driver supports partial return, that can be used if the
- *     transfer size is unknown. If PARTIAL_RETURN is enabled, the transfer will end when
- *     chip select is deasserted. The ::SPI_Transaction.status and the ::SPI_Transaction.count
- *     will be updated to indicate whether the transfer ended due to a chip select deassertion
- *     and how many bytes were transferred. See [Slave Mode With Return Partial] (@ref USE_CASE_RP)
- *     use case below.
+ *     passed to SPI_control(), the transfer will end when chip select is
+ *     deasserted. The #SPI_Transaction.status and the #SPI_Transaction.count
+ *     will be updated to indicate whether the transfer ended due to a chip
+ *     select deassertion and how many bytes were transferred. See
+ *     [Slave Mode With Return Partial] (@ref USE_CASE_RP_X2) use case below.
  *
- * @warning The SPI modules on the CC13x0, CC26x0, and CC26x0R2 devices have a bug which may result
- *          in TX data being lost when operating in SPI slave mode. Please refer to the device errata sheet for full details.
- *          The SPI protocol should therefore include a data integrity check, such as appending a CRC
- *          to the payload to ensure all the data was transmitted correctly by the SPI slave.
+ * @warning The SPI modules on the CC13x0, CC26x0, and CC26x0R2 devices have a
+ *     bug which may result in TX data being lost when operating in SPI slave
+ *     mode. Please refer to the device errata sheet for full details. The SPI
+ *     protocol should therefore include a data integrity check, such as
+ *     appending a CRC to the payload to ensure all the data was transmitted
+ *     correctly by the SPI slave.
+ *
+ * @warning This driver does not support queueing multiple SPI transactions.
  *
  * The following apply for master operation:
  *   - SPI and UDMA modules are enabled by calling SPI_transfer().
@@ -106,20 +110,21 @@
  * # Error handling #
  * If an RX overrun occurs during slave operation:
  *   - If a transfer is ongoing, all bytes received up until the error occurs will be returned, with the
- *     error signaled in the ::SPI_Transaction.status field. RX overrun IRQ, SPI and UDMA modules are then disabled,
+ *     error signaled in the #SPI_Transaction.status field. RX overrun IRQ, SPI and UDMA modules are then disabled,
  *     TX and RX FIFOs are flushed and all bytes will be ignored until a new transfer is issued.
  *   - If a transfer is not ongoing, RX overrun IRQ, SPI and UDMA modules are disabled,
  *     TX and RX FIFOs are flushed and all bytes will be ignored until a new transfer is issued.
  *
  * # Timeout #
- * Timeout can occur in ::SPI_MODE_BLOCKING, there's no timeout in ::SPI_MODE_CALLBACK.
- * When in ::SPI_MODE_CALLBACK, the transfer must be cancelled by calling SPI_transferCancel().\n
- * If a timeout happens in either  ::SPI_SLAVE or ::SPI_MASTER mode,
+ * Timeout can occur in #SPI_MODE_BLOCKING, there's no timeout in #SPI_MODE_CALLBACK.
+ * When in #SPI_MODE_CALLBACK, the transfer must be cancelled by calling SPI_transferCancel().\n
+ * If a timeout happens in either  #SPI_SLAVE or #SPI_MASTER mode,
  * the receive buffer will contain the bytes received up until the timeout occurred.
- * The SPI transaction status will be set to ::SPI_TRANSFER_FAILED.
+ * The SPI transaction status will be set to #SPI_TRANSFER_FAILED.
  * The SPI transaction count will be set to the number of bytes sent/received before timeout.
  * The remaining bytes will be flushed from the TX FIFO so that the subsequent transfer
- * can be executed correctly.
+ * can be executed correctly. Note that specifying a timeout prevents the
+ * driver from performing a polling transfer when in slave mode.
  *
  * # Power Management #
  * The TI-RTOS power management framework will try to put the device into the most
@@ -190,8 +195,8 @@
  *  ## Data Frames #
  *
  *  SPI data frames can be any size from 4-bits to 16-bits. If the dataSize in
- *  ::SPI_Params is greater that 8-bits, then the SPICC26XXDMA driver
- *  implementation will assume that the ::SPI_Transaction txBuf and rxBuf
+ *  #SPI_Params is greater that 8-bits, then the SPICC26XXDMA driver
+ *  implementation will assume that the #SPI_Transaction txBuf and rxBuf
  *  point to an array of 16-bit uint16_t elements.
  *
  *  dataSize  | buffer element size |
@@ -237,14 +242,20 @@
  *
  *  ## Polling SPI transfers #
  *  When used in blocking mode small SPI transfers are can be done by polling
- *  the peripheral & sending data frame-by-frame.  This will not block the task
- *  which requested the transfer, but instead immediately perform the transfer
- *  & return.  The minDmaTransferSize field in the hardware attributes is
+ *  the peripheral & sending data frame-by-frame. A master device can perform
+ *  the transfer immediately and return, but a slave will block until it
+ *  receives the number of frames specified in the SPI_Transfer() call.
+ *  The minDmaTransferSize field in the hardware attributes is
  *  the threshold; if the transaction count is below the threshold a polling
  *  transfer is performed; otherwise a DMA transfer is done.  This is intended
  *  to reduce the overhead of setting up a DMA transfer to only send a few
- *  data frames.  Keep in mind that during polling transfers the current task
+ *  data frames.
+ *
+ *  Notes:
+ *  - Specifying a timeout prevents slave devices from using polling transfers.
+ *  - Keep in mind that during polling transfers the current task
  *  is still being executed; there is no context switch to another task.
+
  *
  * # Supported Functions #
  * | Generic API function  | API function                   | Description                                                 |
@@ -264,7 +275,7 @@
  *
  * ## Use Cases @anchor USE_CASES_SPI ##
  * ### Basic Slave Mode #
- *  Receive 100 bytes over SPI in ::SPI_MODE_BLOCKING.
+ *  Receive 100 bytes over SPI in #SPI_MODE_BLOCKING.
  *  @code
  *  SPI_Handle handle;
  *  SPI_Params params;
@@ -288,10 +299,10 @@
  *  @endcode
  *
  * ### Slave Mode With Return Partial @anchor USE_CASE_RP #
- *  This use case will perform a transfer in ::SPI_MODE_BLOCKING until the wanted amount of bytes is
+ *  This use case will perform a transfer in #SPI_MODE_BLOCKING until the wanted amount of bytes is
  *  transferred or until chip select is deasserted by the SPI master.
  *  This SPI_transfer() call can be used when unknown amount of bytes shall
- *  be transferred. Note: The partial return is also possible in ::SPI_MODE_CALLBACK mode.
+ *  be transferred. Note: The partial return is also possible in #SPI_MODE_CALLBACK mode.
  *  @code
  *  SPI_Handle handle;
  *  SPI_Params params;
@@ -319,9 +330,9 @@
  *  SPI_transfer(handle, &transaction);
  *  @endcode
  *
- * ### Continuous Slave Transfer In ::SPI_MODE_CALLBACK @anchor USE_CASE_CST #
+ * ### Continuous Slave Transfer In #SPI_MODE_CALLBACK @anchor USE_CASE_CST #
  *  This use case will configure the SPI driver to transfer continuously in
- *  ::SPI_MODE_CALLBACK, 16 bytes at the time and echoing received data after every
+ *  #SPI_MODE_CALLBACK, 16 bytes at the time and echoing received data after every
  *  16 bytes.
  *  @code
  *  // Callback function
@@ -389,7 +400,7 @@
  *  ### Master Mode With Multiple Slaves @anchor USE_CASE_MMMS #
  *  This use case will configure a SPI master to send data to one slave and then to another in
  *  BLOCKING_MODE. It is assumed that the board file is configured so that the two chip select
- *  pins have a default setting of a high output and that the ::SPICC26XXDMA_HWAttrsV1 used points
+ *  pins have a default setting of a high output and that the #SPICC26XXDMA_HWAttrsV1 used points
  *  to one of them since the SPI driver will revert to this default setting when switching the
  *  chip select pin.
  *
@@ -493,7 +504,7 @@
  *  }
  *  @endcode
  *
- *  ### Wake Up On Chip Select Deassertion In Slave Mode Using ::SPI_MODE_CALLBACK #
+ *  ### Wake Up On Chip Select Deassertion In Slave Mode Using #SPI_MODE_CALLBACK #
  *  To wake the SPI slave device up on deassertion of the chip select, the chip select
  *  pin must be controled outside of the SPI driver in between SPI transfers.
  *  The example below show how this can be implemented by registering the chip select pin
@@ -846,6 +857,8 @@ typedef struct SPICC26XXDMA_Object {
 
     bool                   isOpen;             /*!< Has the object been opened */
 } SPICC26XXDMA_Object, *SPICC26XXDMA_Handle;
+
+
 
 
 #ifdef __cplusplus

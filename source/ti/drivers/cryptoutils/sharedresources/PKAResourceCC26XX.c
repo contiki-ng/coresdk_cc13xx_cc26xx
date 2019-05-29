@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2018, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,7 +47,7 @@ volatile bool PKAResourceCC26XX_pollingFlag = 0;
 
 HwiP_Struct PKAResourceCC26XX_hwi;
 
-static uint8_t openCount = 0;
+static bool isInitialized = false;
 
 static void errorSpin(uintptr_t arg) {
     while(1);
@@ -59,7 +59,7 @@ void PKAResourceCC26XX_constructRTOSObjects(void) {
 
     key = HwiP_disable();
 
-    if (openCount == 0){
+    if (!isInitialized){
         /* Construct the common Hwi with a dummy ISR function. This should not matter as the function is set
          * whenever we start an operation after pending on PKAResourceCC26XX_accessSemaphore
          */
@@ -71,25 +71,8 @@ void PKAResourceCC26XX_constructRTOSObjects(void) {
         SemaphoreP_constructBinary(&PKAResourceCC26XX_accessSemaphore, 1);
         SemaphoreP_constructBinary(&PKAResourceCC26XX_operationSemaphore, 0);
 
+        isInitialized = true;
     }
-
-    openCount++;
-
-    HwiP_restore(key);
-}
-
-void PKAResourceCC26XX_destructRTOSObjects(void) {
-    uint_fast8_t key;
-
-    key = HwiP_disable();
-
-    if (openCount == 1){
-        HwiP_destruct(&PKAResourceCC26XX_hwi);
-        SemaphoreP_destruct(&PKAResourceCC26XX_operationSemaphore);
-        SemaphoreP_destruct(&PKAResourceCC26XX_accessSemaphore);
-    }
-
-    openCount--;
 
     HwiP_restore(key);
 }

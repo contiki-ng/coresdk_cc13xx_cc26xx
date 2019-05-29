@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017, Texas Instruments Incorporated
+ * Copyright (c) 2016-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,29 +29,19 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** ============================================================================
+/*!****************************************************************************
  *  @file       ADCCC26XX.h
- *
  *  @brief      ADC driver implementation for the ADC peripheral on CC26XX
  *
  *  This ADC driver implementation is designed to operate on a ADC peripheral
- *  for CC26XX.  The ADC CC26XX header file should be included in an application
- *  as follows:
- *  @code
- *  #include <ti/drivers/ADC.h>
- *  #include <ti/drivers/ADCCC26XX.h>
- *  @endcode
+ *  for CC26XX.
  *
  *  Refer to @ref ADC.h for a complete description of APIs & example of use.
  *
- *  ============================================================================
+ ******************************************************************************
  */
 #ifndef ti_drivers_adc_ADCCC26XX__include
 #define ti_drivers_adc_ADCCC26XX__include
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -64,6 +54,10 @@ extern "C" {
 
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(driverlib/aux_adc.h)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  *  @brief  Amount of time the ADC spends sampling the analogue input.

@@ -71,7 +71,6 @@
 
 /* Forward declarations */
 static void ECDSACC26X2_hwiFxn (uintptr_t arg0);
-static void ECDSACC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1);
 static void ECDSACC26X2_internalCallbackFxn (ECDSA_Handle handle,
                                              int_fast16_t returnStatus,
                                              ECDSA_Operation operation,
@@ -104,8 +103,6 @@ static void ECDSACC26X2_internalCallbackFxn (ECDSA_Handle handle,
                                              ECDSA_OperationType operationType) {
     ECDSACC26X2_Object *object = handle->object;
 
-    object->returnValue = returnStatus;
-
     /* This function is only ever registered when in ECDSA_RETURN_BEHAVIOR_BLOCKING
      * or ECDSA_RETURN_BEHAVIOR_POLLING.
      */
@@ -122,27 +119,34 @@ static void ECDSACC26X2_internalCallbackFxn (ECDSA_Handle handle,
  */
 static void ECDSACC26X2_hwiFxn (uintptr_t arg0) {
     ECDSACC26X2_Object *object = ((ECDSA_Handle)arg0)->object;
+    uint32_t key;
 
-    // Disable interrupt again
+    /* Disable interrupt again */
     IntDisable(INT_PKA_IRQ);
 
-    SwiP_post(&(object->callbackSwi));
-}
-
-/*
- *  ======== ECDSACC26X2_swiFxn ========
- */
-static void ECDSACC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
-    ECDSACC26X2_Object *object = ((ECDSA_Handle)arg0)->object;
-    int_fast16_t fsmResult;
-
+    /* Execute next states */
     do {
-        fsmResult = object->fsmFxn((ECDSA_Handle)arg0);
+        object->operationStatus = object->fsmFxn((ECDSA_Handle)arg0);
         object->fsmState++;
-    } while (fsmResult == ECDSACC26X2_STATUS_FSM_RUN_FSM);
+    } while (object->operationStatus == ECDSACC26X2_STATUS_FSM_RUN_FSM);
 
-    switch (fsmResult) {
+    /* We need a critical section here in case the operation is canceled
+     * asynchronously.
+     */
+    key = HwiP_disable();
+
+    if(object->operationCanceled) {
+        /* Set function register to 0. This should stop the current operation */
+        HWREG(PKA_BASE + PKA_O_FUNCTION) = 0;
+
+        object->operationStatus = ECDSA_STATUS_CANCELED;
+    }
+
+    switch (object->operationStatus) {
         case ECDSACC26X2_STATUS_FSM_RUN_PKA_OP:
+
+            HwiP_restore(key);
+
             /* Do nothing. The PKA hardware
              * will execute in the background and post
              * this SWI when it is done.
@@ -152,7 +156,27 @@ static void ECDSACC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
             /* Intentional fall through */
         case ECDSA_STATUS_ERROR:
             /* Intentional fall through */
+        case ECDSA_STATUS_CANCELED:
+            /* Intentional fall through */
         default:
+
+            /* Mark this operation as complete */
+            object->operationInProgress = false;
+
+            /* Clear any pending interrupt in case a transaction kicked off
+             * above already finished
+             */
+            IntDisable(INT_PKA_IRQ);
+            IntPendClear(INT_PKA_IRQ);
+
+            /* We can end the critical section since the operation may no
+             * longer be canceled
+             */
+            HwiP_restore(key);
+
+            /* Make sure there is no keying material remaining in PKA RAM */
+            PKAClearPkaRam();
+
             /*  Grant access for other threads to use the crypto module.
              *  The semaphore must be posted before the callbackFxn to allow the chaining
              *  of operations.
@@ -162,7 +186,7 @@ static void ECDSACC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
             Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
             object->callbackFxn((ECDSA_Handle)arg0,
-                                fsmResult,
+                                object->operationStatus,
                                 object->operation,
                                 object->operationType);
     }
@@ -666,13 +690,15 @@ static int_fast16_t ECDSACC26X2_waitForAccess(ECDSA_Handle handle) {
 static int_fast16_t ECDSACC26X2_waitForResult(ECDSA_Handle handle){
     ECDSACC26X2_Object *object = handle->object;
 
+    object->operationInProgress = true;
+
     switch (object->returnBehavior) {
         case ECDSA_RETURN_BEHAVIOR_POLLING:
             while(!PKAResourceCC26XX_pollingFlag);
-            return object->returnValue;
+            return object->operationStatus;
         case ECDSA_RETURN_BEHAVIOR_BLOCKING:
             SemaphoreP_pend(&PKAResourceCC26XX_operationSemaphore, SemaphoreP_WAIT_FOREVER);
-            return object->returnValue;
+            return object->operationStatus;
         case ECDSA_RETURN_BEHAVIOR_CALLBACK:
             return ECDSA_STATUS_SUCCESS;
         default:
@@ -685,23 +711,9 @@ static int_fast16_t ECDSACC26X2_waitForResult(ECDSA_Handle handle){
  *  ======== ECDSA_init ========
  */
 void ECDSA_init(void) {
-    uint_least8_t i;
-    uint_fast8_t key;
+    PKAResourceCC26XX_constructRTOSObjects();
 
-    key = HwiP_disable();
-
-    if (!isInitialized) {
-        /* Call each instances' driver init function */
-        for (i = 0; i < ECDSA_count; i++) {
-            ECDSA_Handle handle = (ECDSA_Handle)&(ECDSA_config[i]);
-            ECDSACC26X2_Object *object = (ECDSACC26X2_Object *)handle->object;
-            object->isOpen = false;
-        }
-
-        isInitialized = true;
-    }
-
-    HwiP_restore(key);
+    isInitialized = true;
 }
 
 
@@ -716,16 +728,11 @@ void ECDSA_close(ECDSA_Handle handle) {
     /* Get the pointer to the object */
     object = handle->object;
 
-    /* Release power dependency on PKA Module. */
-    Power_releaseDependency(PowerCC26X2_PERIPH_PKA);
-
-    /* Destroy the SWI */
-    SwiP_destruct(&(object->callbackSwi));
-
-    PKAResourceCC26XX_destructRTOSObjects();
-
     /* Mark the module as available */
     object->isOpen = false;
+
+    /* Release power dependency on PKA Module. */
+    Power_releaseDependency(PowerCC26X2_PERIPH_PKA);
 }
 
 
@@ -733,15 +740,12 @@ void ECDSA_close(ECDSA_Handle handle) {
  *  ======== ECDSA_open ========
  */
 ECDSA_Handle ECDSA_open(uint_least8_t index, ECDSA_Params *params) {
-    SwiP_Params                 swiParams;
     ECDSA_Handle                  handle;
     ECDSACC26X2_Object           *object;
-    ECDSACC26X2_HWAttrs const    *hwAttrs;
     uint_fast8_t                key;
 
     handle = (ECDSA_Handle)&(ECDSA_config[index]);
     object = handle->object;
-    hwAttrs = handle->hwAttrs;
 
     DebugP_assert(index < ECDSA_count);
 
@@ -766,14 +770,6 @@ ECDSA_Handle ECDSA_open(uint_least8_t index, ECDSA_Params *params) {
     object->returnBehavior = params->returnBehavior;
     object->callbackFxn = params->returnBehavior == ECDSA_RETURN_BEHAVIOR_CALLBACK ? params->callbackFxn : ECDSACC26X2_internalCallbackFxn;
     object->semaphoreTimeout = params->timeout;
-
-    /* Create Swi object for this ECDSA peripheral */
-    SwiP_Params_init(&swiParams);
-    swiParams.arg0 = (uintptr_t)handle;
-    swiParams.priority = hwAttrs->swiPriority;
-    SwiP_construct(&(object->callbackSwi), ECDSACC26X2_swiFxn, &swiParams);
-
-    PKAResourceCC26XX_constructRTOSObjects();
 
     /* Set power dependency - i.e. power up and enable clock for PKA (PKAResourceCC26XX) module. */
     Power_setDependency(PowerCC26X2_PERIPH_PKA);
@@ -806,7 +802,8 @@ int_fast16_t ECDSA_sign(ECDSA_Handle handle, ECDSA_OperationSign *operation) {
     object->operationType       = ECDSA_OPERATION_TYPE_SIGN;
     object->fsmState            = ECDSACC26X2_FSM_SIGN_VALIDATE_PMSN;
     object->fsmFxn              = ECDSACC26X2_runSignFSM;
-    object->returnValue         = ECDSA_STATUS_ERROR;
+    object->operationStatus     = ECDSA_STATUS_ERROR;
+    object->operationCanceled   = false;
     scratchBufferSize           = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
     scratchBuffer2Size          = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
 
@@ -822,8 +819,10 @@ int_fast16_t ECDSA_sign(ECDSA_Handle handle, ECDSA_OperationSign *operation) {
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Run the FSM by triggering the interrupt. It is level triggered
+     * and the complement of the RUN bit.
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECDSACC26X2_waitForResult(handle);
 }
@@ -854,7 +853,8 @@ int_fast16_t ECDSA_verify(ECDSA_Handle handle, ECDSA_OperationVerify *operation)
     object->operationType       = ECDSA_OPERATION_TYPE_VERIFY;
     object->fsmState            = ECDSACC26X2_FSM_VERIFY_R_S_IN_RANGE;
     object->fsmFxn              = ECDSACC26X2_runVerifyFSM;
-    object->returnValue         = ECDSA_STATUS_ERROR;
+    object->operationStatus     = ECDSA_STATUS_ERROR;
+    object->operationCanceled   = false;
     scratchBufferSize           = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
     scratchBuffer2Size          = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
 
@@ -871,8 +871,30 @@ int_fast16_t ECDSA_verify(ECDSA_Handle handle, ECDSA_OperationVerify *operation)
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Run the FSM by triggering the interrupt. It is level triggered
+     * and the complement of the RUN bit.
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECDSACC26X2_waitForResult(handle);
+}
+
+/*
+ *  ======== ECDSA_cancelOperation ========
+ */
+int_fast16_t ECDSA_cancelOperation(ECDSA_Handle handle) {
+    ECDSACC26X2_Object *object = handle->object;
+
+    if(!object->operationInProgress){
+        return ECDSA_STATUS_ERROR;
+    }
+
+    object->operationCanceled = true;
+
+    /* Post hwi as if operation finished for cleanup */
+    IntEnable(INT_PKA_IRQ);
+    HwiP_post(INT_PKA_IRQ);
+
+
+    return ECDSA_STATUS_SUCCESS;
 }

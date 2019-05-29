@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -61,8 +61,6 @@
 
 /* Forward declarations */
 static void AESCCM_hwiFxn (uintptr_t arg0);
-static void AESCCM_swiFxn (uintptr_t arg0, uintptr_t arg1);
-static int_fast16_t AESCCM_waitForAccess(AESCCM_Handle handle);
 static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
                                           AESCCM_Operation *operation,
                                           AESCCM_OperationType operationType);
@@ -77,10 +75,33 @@ extern const uint_least8_t AESCCM_count;
 static bool isInitialized = false;
 
 /*
- *  ======== AESCCM_swiFxn ========
+ *  ======== AESCCM_hwiFxn ========
  */
-static void AESCCM_swiFxn (uintptr_t arg0, uintptr_t arg1) {
+static void AESCCM_hwiFxn (uintptr_t arg0) {
     AESCCMCC26XX_Object *object = ((AESCCM_Handle)arg0)->object;
+    uint32_t key;
+
+    key = HwiP_disable();
+    if (!object->operationCanceled) {
+
+        /* Mark that we are done with the operation so that AESCCM_cancelOperation
+         * knows not to try canceling.
+         */
+        object->operationInProgress = false;
+
+        HwiP_restore(key);
+    }
+    else {
+        HwiP_restore(key);
+        return;
+    }
+
+    /* Propagate the DMA error from driverlib to the application */
+    if (AESIntStatusRaw() & AES_DMA_BUS_ERR) {
+        object->returnStatus = AESCCM_STATUS_ERROR;
+    }
+
+    AESIntClear(AES_RESULT_RDY | AES_DMA_IN_DONE | AES_DMA_BUS_ERR);
 
     /* Handle cleaning up of the operation. Read out the tag
      * or verify it against the provided one, invalidate the key,
@@ -100,22 +121,6 @@ static void AESCCM_swiFxn (uintptr_t arg0, uintptr_t arg1) {
                             object->operation,
                             object->operationType);
     }
-}
-
-/*
- *  ======== AESCCM_hwiFxn ========
- */
-static void AESCCM_hwiFxn (uintptr_t arg0) {
-    AESCCMCC26XX_Object *object = ((AESCCM_Handle)arg0)->object;
-
-    /* Propagate the DMA error from driverlib to the application */
-    if (AESIntStatusRaw() & AES_DMA_BUS_ERR) {
-        object->returnStatus = AESCCM_STATUS_ERROR;
-    }
-
-    AESIntClear(AES_RESULT_RDY | AES_DMA_IN_DONE | AES_DMA_BUS_ERR);
-
-    SwiP_post(&(object->callbackSwi));
 }
 
 static void AESCCM_cleanup(AESCCM_Handle handle) {
@@ -165,40 +170,23 @@ static void AESCCM_cleanup(AESCCM_Handle handle) {
  *  ======== AESCCM_init ========
  */
 void AESCCM_init(void) {
-    uint_least8_t i;
-    uint_fast8_t key;
+    CryptoResourceCC26XX_constructRTOSObjects();
 
-    key = HwiP_disable();
-
-    if (!isInitialized) {
-        /* Call each instances' driver init function */
-        for (i = 0; i < AESCCM_count; i++) {
-            AESCCM_Handle handle = (AESCCM_Handle)&(AESCCM_config[i]);
-            AESCCMCC26XX_Object *object = (AESCCMCC26XX_Object *)handle->object;
-            object->isOpen = false;
-        }
-
-        isInitialized = true;
-    }
-
-    HwiP_restore(key);
+    isInitialized = true;
 }
 
 /*
  *  ======== AESCCM_open ========
  */
 AESCCM_Handle AESCCM_open(uint_least8_t index, AESCCM_Params *params) {
-    SwiP_Params                 swiParams;
     AESCCM_Handle               handle;
     AESCCMCC26XX_Object        *object;
-    AESCCMCC26XX_HWAttrs const *hwAttrs;
     uint_fast8_t                key;
 
     handle = (AESCCM_Handle)&(AESCCM_config[index]);
     object = handle->object;
-    hwAttrs = handle->hwAttrs;
 
-    DebugP_assert(index >= AESCCM_count);
+    DebugP_assert(index < AESCCM_count);
 
     key = HwiP_disable();
 
@@ -222,15 +210,7 @@ AESCCM_Handle AESCCM_open(uint_least8_t index, AESCCM_Params *params) {
 
     object->returnBehavior = params->returnBehavior;
     object->callbackFxn = params->callbackFxn;
-    object->semaphoreTimeout = params->timeout;
-
-    /* Create Swi object for this AESCCM peripheral */
-    SwiP_Params_init(&swiParams);
-    swiParams.arg0 = (uintptr_t)handle;
-    swiParams.priority = hwAttrs->swiPriority;
-    SwiP_construct(&(object->callbackSwi), AESCCM_swiFxn, &swiParams);
-
-    CryptoResourceCC26XX_constructRTOSObjects();
+    object->semaphoreTimeout = params->returnBehavior == AESCCM_RETURN_BEHAVIOR_BLOCKING ? params->timeout : SemaphoreP_NO_WAIT;
 
     /* Set power dependency - i.e. power up and enable clock for Crypto (CryptoResourceCC26XX) module. */
     Power_setDependency(PowerCC26XX_PERIPH_CRYPTO);
@@ -249,16 +229,11 @@ void AESCCM_close(AESCCM_Handle handle) {
     /* Get the pointer to the object and hwAttrs */
     object = handle->object;
 
-    CryptoResourceCC26XX_destructRTOSObjects();
-
-    /* Destroy the Swi */
-    SwiP_destruct(&(object->callbackSwi));
+    /* Mark the module as available */
+    object->isOpen = false;
 
     /* Release power dependency on Crypto Module. */
     Power_releaseDependency(PowerCC26XX_PERIPH_CRYPTO);
-
-    /* Mark the module as available */
-    object->isOpen = false;
 }
 
 /*
@@ -269,6 +244,7 @@ static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
                                           AESCCM_OperationType operationType) {
     AESCCMCC26XX_Object *object = handle->object;
     AESCCMCC26XX_HWAttrs const *hwAttrs = handle->hwAttrs;
+    SemaphoreP_Status resourceAcquired;
 
     /* Only plaintext CryptoKeys are supported for now */
     uint16_t keyLength = operation->key->u.plaintext.keyLength;
@@ -282,7 +258,10 @@ static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
     DebugP_assert(key->encoding == CryptoKey_PLAINTEXT);
 
     /* Try and obtain access to the crypto module */
-    if (AESCCM_waitForAccess(handle) != SemaphoreP_OK) {
+    resourceAcquired = SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore,
+                                       object->semaphoreTimeout);
+
+    if (resourceAcquired != SemaphoreP_OK) {
         return AESCCM_STATUS_RESOURCE_UNAVAILABLE;
     }
 
@@ -290,8 +269,7 @@ static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
     object->operation = operation;
     /* We will only change the returnStatus if there is an error */
     object->returnStatus = AESCCM_STATUS_SUCCESS;
-
-    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
+    object->operationCanceled = false;
 
     /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
      * drivers and they all need to coexist. Whenever a driver starts an operation, it
@@ -302,6 +280,9 @@ static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
 
     /* Load the key from RAM or flash into the key store at a hardcoded and reserved location */
     if (AESWriteToKeyStore(keyingMaterial, keyLength, AES_KEY_AREA_6) != AES_SUCCESS) {
+        /* Release the CRYPTO mutex */
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+
         return AESCCM_STATUS_ERROR;
     }
 
@@ -309,7 +290,7 @@ static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
      * AESWriteToKeyStore() disables and then re-enables the CRYPTO IRQ in the NVIC so we
      * need to disable it before kicking off the operation.
      */
-    if (object->returnBehavior == AESCCM_RETURN_BEHAVIOR_POLLING)  {
+    if (object->returnBehavior == AESCCM_RETURN_BEHAVIOR_POLLING) {
         IntDisable(INT_CRYPTO_RESULT_AVAIL_IRQ);
     }
 
@@ -318,8 +299,24 @@ static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
 
     /* Load the key from the key store into the internal register banks of the AES sub-module */
     if (AESReadFromKeyStore(AES_KEY_AREA_6) != AES_SUCCESS) {
+        /* Since plaintext keys use two reserved (by convention) slots in the keystore,
+         * the slots must be invalidated to prevent its re-use without reloading
+         * the key material again.
+         */
+        AESInvalidateKey(AES_KEY_AREA_6);
+        AESInvalidateKey(AES_KEY_AREA_7);
+
+        /* Release the CRYPTO mutex */
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+
         return AESCCM_STATUS_ERROR;
     }
+
+    /* Disallow standby. We are about to configure and start the accelerator.
+     * Setting the constraint should happen after all opportunities to fail out of the
+     * function. This way, we do not need to undo it each time we exit with a failure.
+     */
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
     AESWriteCCMInitializationVector(operation->nonce, operation->nonceLength);
 
@@ -338,33 +335,26 @@ static int_fast16_t AESCCM_startOperation(AESCCM_Handle handle,
 
     AESStartDMAOperation(operation->input, operation->inputLength, operation->output, operation->inputLength);
 
+
     return AESCCM_waitForResult(handle);
-}
-
-/*
- *  ======== AESCCM_waitForAccess ========
- */
-static int_fast16_t AESCCM_waitForAccess(AESCCM_Handle handle) {
-    AESCCMCC26XX_Object *object = handle->object;
-    uint32_t timeout;
-
-    /* Set to SemaphoreP_NO_WAIT to start operations from SWI or HWI context */
-    timeout = object->returnBehavior == AESCCM_RETURN_BEHAVIOR_BLOCKING ? object->semaphoreTimeout : SemaphoreP_NO_WAIT;
-
-    return SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore, timeout);
 }
 
 /*
  *  ======== AESCCM_waitForResult ========
  */
-static int_fast16_t AESCCM_waitForResult(AESCCM_Handle handle){
+static int_fast16_t AESCCM_waitForResult(AESCCM_Handle handle) {
     AESCCMCC26XX_Object *object = handle->object;
+
+    object->operationInProgress = true;
 
     if (object->returnBehavior == AESCCM_RETURN_BEHAVIOR_POLLING) {
         /* Wait until the operation is complete and check for DMA errors. */
         if(AESWaitForIRQFlags(AES_RESULT_RDY | AES_DMA_BUS_ERR) & AES_DMA_BUS_ERR){
             object->returnStatus = AESCCM_STATUS_ERROR;
         }
+
+        /* Mark that we are done with the operation */
+        object->operationInProgress = false;
 
         /* Make sure to also clear DMA_IN_DONE as it is not cleared above
          * but will be set none-the-less.
@@ -401,4 +391,55 @@ int_fast16_t AESCCM_oneStepEncrypt(AESCCM_Handle handle, AESCCM_Operation *opera
 int_fast16_t AESCCM_oneStepDecrypt(AESCCM_Handle handle, AESCCM_Operation *operationStruct) {
 
     return AESCCM_startOperation(handle, operationStruct, AESCCM_OPERATION_TYPE_DECRYPT);
+}
+
+/*
+ *  ======== AESCCM_cancelOperation ========
+ */
+int_fast16_t AESCCM_cancelOperation(AESCCM_Handle handle) {
+    AESCCMCC26XX_Object *object         = handle->object;
+    uint32_t key;
+
+    key = HwiP_disable();
+
+    if (!object->operationInProgress) {
+        HwiP_restore(key);
+        return AESCCM_STATUS_ERROR;
+    }
+
+    /* Reset the accelerator. Immediately stops ongoing operations. */
+    AESReset();
+
+    /* Consume any outstanding interrupts we may have accrued
+     * since disabling interrupts.
+     */
+    IntPendClear(INT_CRYPTO_RESULT_AVAIL_IRQ);
+
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+    object->operationCanceled = true;
+    object->returnStatus = AESCCM_STATUS_CANCELED;
+
+    HwiP_restore(key);
+
+    /*  Grant access for other threads to use the crypto module.
+     *  The semaphore must be posted before the callbackFxn to allow the chaining
+     *  of operations.
+     */
+    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+
+
+    if (object->returnBehavior == AESCCM_RETURN_BEHAVIOR_BLOCKING) {
+        /* Unblock the pending task to signal that the operation is complete. */
+        SemaphoreP_post(&CryptoResourceCC26XX_operationSemaphore);
+    }
+    else {
+        /* Call the callback function provided by the application. */
+        object->callbackFxn(handle,
+                            AESCCM_STATUS_CANCELED,
+                            object->operation,
+                            object->operationType);
+    }
+
+    return AESCCM_STATUS_SUCCESS;
 }

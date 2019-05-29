@@ -194,7 +194,7 @@ typedef enum ECJPAKECC26X2_FsmState_ {
  *  and pointed to by the ECJPAKE_config struct.
  */
 typedef struct ECJPAKECC26X2_HWAttrs_ {
-    /*! @brief Crypto Peripheral's interrupt priority.
+    /*! @brief PKA Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
 
@@ -207,12 +207,6 @@ typedef struct ECJPAKECC26X2_HWAttrs_ {
         HWI's with priority 0 ignore the HWI dispatcher to support zero-latency interrupts, thus invalidating the critical sections in this driver.
     */
     uint8_t    intPriority;
-        /*! @brief ECC SWI priority.
-        The higher the number, the higher the priority.
-        The minimum is 0 and the maximum is 15 by default.
-        The maximum can be reduced to save RAM by adding or modifying Swi.numPriorities in the kernel configuration file.
-    */
-    uint32_t   swiPriority;
 } ECJPAKECC26X2_HWAttrs;
 
 /*!
@@ -222,7 +216,9 @@ typedef struct ECJPAKECC26X2_HWAttrs_ {
  */
 typedef struct ECJPAKECC26X2_Object_ {
     bool                                isOpen;
-    int_fast16_t                        returnValue;
+    bool                                operationInProgress;
+    bool                                operationCanceled;
+    int_fast16_t                        operationStatus;
     ECJPAKE_CallbackFxn                 callbackFxn;
     ECJPAKE_ReturnBehavior              returnBehavior;
     ECJPAKECC26X2_FsmState              fsmState;
@@ -230,7 +226,6 @@ typedef struct ECJPAKECC26X2_Object_ {
     ECJPAKE_OperationType               operationType;
     uint32_t                            semaphoreTimeout;
     uint32_t                            resultAddress;
-    SwiP_Struct                         callbackSwi;
 } ECJPAKECC26X2_Object;
 
 #ifdef __cplusplus

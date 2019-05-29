@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       rf_patch_mce_genfsk.h
-*  Revised:        $Date: 2018-05-07 15:02:01 +0200 (ma, 07 mai 2018) $
-*  Revision:       $Revision: 18438 $
+*  Revised:        $Date: 2019-01-31 15:04:25 +0100 (to, 31 jan 2019) $
+*  Revision:       $Revision: 18842 $
 *
 *  Description: RF core patch for CC13x0 Generic FSK
 *
-*  Copyright (c) 2015-2017, Texas Instruments Incorporated
+*  Copyright (c) 2015-2019, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

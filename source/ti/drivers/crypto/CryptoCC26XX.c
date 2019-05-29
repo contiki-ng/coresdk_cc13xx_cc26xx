@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,6 +41,7 @@
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26XX.h>
 #include <ti/drivers/crypto/CryptoCC26XX.h>
+#include <ti/drivers/cryptoutils/sharedresources/CryptoResourceCC26XX.h>
 
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(inc/hw_memmap.h)
@@ -92,9 +93,6 @@ static int cryptoTransactionExecute(CryptoCC26XX_Handle handle, CryptoCC26XX_Tra
 /* Flag to signal interrupt has happened */
 static volatile bool hwiIntFlag;
 
-/* Crypto driver semaphore used to implement synchronicity for CryptoCC26XX_open() */
-static SemaphoreP_Struct cryptoSem;
-
 static bool isInitialized = false;
 
 /*
@@ -116,7 +114,7 @@ void CryptoCC26XX_hwiIntFxn(uintptr_t arg)
     /* Set hwi flag */
     hwiIntFlag = true;
     if(object->currentTransact->mode == CRYPTOCC26XX_MODE_BLOCKING) {
-        SemaphoreP_post(&(object->waitSem));
+        SemaphoreP_post(&CryptoResourceCC26XX_operationSemaphore);
     }
 }
 
@@ -125,11 +123,9 @@ void CryptoCC26XX_hwiIntFxn(uintptr_t arg)
  */
 void CryptoCC26XX_init(void)
 {
-    if (!isInitialized) {
-        // Setup semaphore for sequencing accesses to CryptoCC26XX_open()
-        SemaphoreP_constructBinary(&cryptoSem, 1);
-        isInitialized = true;
-    }
+    CryptoResourceCC26XX_constructRTOSObjects();
+
+    isInitialized = true;
 }
 
 /*
@@ -158,7 +154,6 @@ void CryptoCC26XX_Transac_init(CryptoCC26XX_Transaction *trans, CryptoCC26XX_Ope
 CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, CryptoCC26XX_Params *params)
 {
     unsigned int                    key;
-    HwiP_Params                     hwiParams;
     CryptoCC26XX_Handle             handle;
     CryptoCC26XX_Object            *object;
     CryptoCC26XX_HWAttrs const     *hwAttrs;
@@ -168,7 +163,7 @@ CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, 
     DebugP_assert(isInitialized == true);
 
     // Ensure that only one client at a time can call CryptoCC26XX_open()
-    SemaphoreP_pend(&cryptoSem, SemaphoreP_WAIT_FOREVER);
+    SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore, SemaphoreP_WAIT_FOREVER);
 
     /* Get handle for this driver instance */
     handle = (CryptoCC26XX_Handle)&(CryptoCC26XX_config[index]);
@@ -179,6 +174,13 @@ CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, 
     /* Disable preemption while checking if the CryptoCC26XX is open. */
     key = HwiP_disable();
 
+    if (isInitialized == false) {
+        HwiP_restore(key);
+        /* Release semaphore */
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        return (NULL);
+    }
+
     /* Check if the CryptoCC26XX is open already with exclusive access or
      * if Crypto is already open and new client want exclusive access.
      */
@@ -186,7 +188,7 @@ CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, 
         HwiP_restore(key);
         DebugP_log1("CryptoCC26XX:(%p) in use with exclusive access.", hwAttrs->baseAddr);
         /* Release semaphore */
-        SemaphoreP_post(&cryptoSem);
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
         return (NULL);
     }
 
@@ -194,7 +196,7 @@ CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, 
         HwiP_restore(key);
         DebugP_log1("CryptoCC26XX:(%p) already in use, exclusive access is not possible.", hwAttrs->baseAddr);
         /* Release semaphore */
-        SemaphoreP_post(&cryptoSem);
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
         return (NULL);
     }
 
@@ -213,7 +215,7 @@ CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, 
     /* Check if the CryptoCC26XX is open already with the base addr. */
     if (object->openCnt > 1) {
         /* Release semaphore */
-        SemaphoreP_post(&cryptoSem);
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
         /* Crypto is already configured, return handle */
         return (handle);
     }
@@ -225,24 +227,8 @@ CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, 
     }
     object->timeout = params->timeout;
 
-    /* Set CryptoCC26XX variables to defaults. */
-    int intNum = hwAttrs->intNum;
-
-    /* Create Hwi object for this CryptoCC26XX peripheral. */
-    HwiP_Params_init(&hwiParams);
-    hwiParams.arg = (uintptr_t)handle;
-    hwiParams.priority = hwAttrs->intPriority;
-    HwiP_construct(&(object->hwi), intNum, CryptoCC26XX_hwiIntFxn, &hwiParams);
-
-    /* Semaphore that will be used in blocking mode when waiting for operation
-     * to finish.
-     */
-    SemaphoreP_constructBinary(&(object->waitSem), 0);
-
-    /* The transaction semaphore used to ensure that only one transaction
-     * is active at the same time.
-     */
-    SemaphoreP_constructBinary(&(object->transSem), 1);
+    /* Reserve key slots 6 and 7 for use by other drivers */
+    object->keyStore = 1 << 6 | 1 << 7;
 
     /* Set power dependency - i.e. power up and enable clock for Crypto (CryptoCC26XX) module. */
     Power_setDependency(hwAttrs->powerMngrId);
@@ -253,7 +239,7 @@ CryptoCC26XX_Handle CryptoCC26XX_open(unsigned int index, bool exclusiveAccess, 
     DebugP_log1("CryptoCC26XX:(%p) opened", hwAttrs->baseAddr);
 
     /* Release semaphore */
-    SemaphoreP_post(&cryptoSem);
+    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
 
     /* Return the handle */
     return (handle);
@@ -291,9 +277,6 @@ int CryptoCC26XX_close(CryptoCC26XX_Handle handle)
     HwiP_restore(key);
 
     if(object->openCnt == 0) {
-        HwiP_destruct(&(object->hwi));
-        SemaphoreP_destruct(&(object->transSem));
-        SemaphoreP_destruct(&(object->waitSem));
         /* Release power dependency - i.e. potentially power down peripheral domain. */
         Power_releaseDependency(hwAttrs->powerMngrId);
         /* Unregister power notification object */
@@ -342,11 +325,11 @@ int CryptoCC26XX_allocateKey(CryptoCC26XX_Handle handle, CryptoCC26XX_KeyLocatio
     keyIndex = CRYPTOCC26XX_STATUS_ERROR;
 
     /* Wait for the HW module to become available */
-    SemaphoreP_pend(&(object->transSem), SemaphoreP_WAIT_FOREVER);
+    SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore, SemaphoreP_WAIT_FOREVER);
 
     /* KEY_ANY means first available kay starting from highest index will be used */
     if (keyLocation == CRYPTOCC26XX_KEY_ANY) {
-        for (i = CRYPTOCC26XX_KEY_7; i >= 0 ; i--) {
+        for (i = CRYPTOCC26XX_KEY_5; i >= 0 ; i--) {
             /* Search for first available key in store */
             if (!(object->keyStore & (1<<i))) {
                 object->keyStore |= (1<<i);
@@ -377,7 +360,7 @@ int CryptoCC26XX_allocateKey(CryptoCC26XX_Handle handle, CryptoCC26XX_KeyLocatio
     }
 
     /* Release semaphore */
-    SemaphoreP_post(&(object->transSem));
+    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
 
     return (keyIndex);
 }
@@ -400,7 +383,7 @@ int CryptoCC26XX_loadKey(CryptoCC26XX_Handle handle, int keyIndex, const uint32_
     blockingAllowed = !(SwiP_inISR() || HwiP_inISR());
 
     /* Try to acquire the semaphore */
-    semaphoreAcquired = SemaphoreP_pend(&(object->transSem), blockingAllowed ? object->timeout : SemaphoreP_NO_WAIT);
+    semaphoreAcquired = SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore, blockingAllowed ? object->timeout : SemaphoreP_NO_WAIT);
 
     /* Check if we acquired the semaphore */
     if(semaphoreAcquired == SemaphoreP_OK) {
@@ -417,7 +400,7 @@ int CryptoCC26XX_loadKey(CryptoCC26XX_Handle handle, int keyIndex, const uint32_
             }
         }
         /* Release semaphore */
-        SemaphoreP_post(&(object->transSem));
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
     }
 
     return (loadKeyStatus);
@@ -462,7 +445,7 @@ static int cryptoPostNotify(unsigned int eventType, uintptr_t eventArg, uintptr_
     /* Currently only subscribing to AWAKE_STANDBY notification, so if notified        */
     /* we are returning from standby. Reset the keyStore since the RAM content is lost */
     object = ((CryptoCC26XX_Handle) clientArg)->object;
-    object->keyStore = 0;
+    object->keyStore = 1 << 6 | 1 << 7;
 
     return Power_NOTIFYDONE;
 }
@@ -477,7 +460,7 @@ static bool cryptoTransactionPend(CryptoCC26XX_Handle handle){
     bool transactionCompleted = false;
 
     /* Pend on blocking mode semaphore and wait for Hwi to finish. */
-    if (SemaphoreP_OK != SemaphoreP_pend(&(object->waitSem), object->timeout))
+    if (SemaphoreP_OK != SemaphoreP_pend(&CryptoResourceCC26XX_operationSemaphore, object->timeout))
     {
         /* Semaphore timed out */
         DebugP_log1("CryptoCC26XX:(%p) AES transaction timed out",
@@ -486,7 +469,7 @@ static bool cryptoTransactionPend(CryptoCC26XX_Handle handle){
         Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
         Power_releaseConstraint(PowerCC26XX_DISALLOW_XOSC_HF_SWITCHING);
         /* Release semaphore */
-        SemaphoreP_post(&(object->transSem));
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
         transactionCompleted = false;
     }
     else{
@@ -512,10 +495,11 @@ static bool cryptoTransactionPoll(void){
  *  This function handles all supported crypto modes and interfaces with driverlib to configure the hardware correctly.
  */
 static int cryptoTransactionExecute(CryptoCC26XX_Handle handle, CryptoCC26XX_Transaction *transaction, bool polling){
-    CryptoCC26XX_Object     *object;
-    unsigned int            key;
-    int                     res;
-    uint8_t                 transactionCompleted;
+    CryptoCC26XX_Object         *object;
+    const CryptoCC26XX_HWAttrs  *hwAttrs;
+    unsigned int                key;
+    int                         res;
+    uint8_t                     transactionCompleted;
     union {
         CryptoCC26XX_AESCCM_Transaction *aesccm;
         CryptoCC26XX_AESECB_Transaction *aesecb;
@@ -523,10 +507,11 @@ static int cryptoTransactionExecute(CryptoCC26XX_Handle handle, CryptoCC26XX_Tra
     } transUnion;
 
     object = handle->object;
+    hwAttrs = handle->hwAttrs;
 
     /* Check if the crypto is active already (grab semaphore) */
-    if (SemaphoreP_OK != SemaphoreP_pend(&(object->transSem),
-                polling ? SemaphoreP_NO_WAIT : SemaphoreP_WAIT_FOREVER)) {
+    if (SemaphoreP_OK != SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore,
+                                         polling ? SemaphoreP_NO_WAIT : SemaphoreP_WAIT_FOREVER)) {
         DebugP_log0("CryptoCC26XX: CryptoCC26XX_transactPolling() was called when crypto module is already busy.");
         return AES_DMA_BSY;
     }
@@ -536,6 +521,13 @@ static int cryptoTransactionExecute(CryptoCC26XX_Handle handle, CryptoCC26XX_Tra
 
     /* Set current transaction as head and tail */
     object->currentTransact = transaction;
+
+    /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
+     * drivers and they all need to coexist. Whenever a driver starts an operation, it
+     * registers its HWI callback with the OS.
+     */
+    HwiP_setFunc(&CryptoResourceCC26XX_hwi, CryptoCC26XX_hwiIntFxn, (uintptr_t)handle);
+    HwiP_setPriority(INT_CRYPTO_RESULT_AVAIL_IRQ, hwAttrs->intPriority);
 
     if (polling) {
         /* Set mode of the transaction */
@@ -741,6 +733,6 @@ static int cryptoTransactionExecute(CryptoCC26XX_Handle handle, CryptoCC26XX_Tra
         Power_releaseConstraint(PowerCC26XX_DISALLOW_XOSC_HF_SWITCHING);
     }
     /* Release semaphore */
-    SemaphoreP_post(&(object->transSem));
+    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
     return (res);
 }

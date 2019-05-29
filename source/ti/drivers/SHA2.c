@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017, 2018 Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -36,51 +36,18 @@
  *
  */
 
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-
 #include <ti/drivers/SHA2.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 
-const SHA2_Params SHA2_defaultParams = {
+const SHA2_Params SHA2_defaultParams =
+{
+    .hashType = SHA2_HASH_TYPE_256,
     .returnBehavior = SHA2_RETURN_BEHAVIOR_BLOCKING,
     .callbackFxn = NULL,
-    .timeout = SemaphoreP_WAIT_FOREVER,
-    .custom = NULL,
+    .timeout = (uint32_t)SemaphoreP_WAIT_FOREVER,
 };
 
-/*
- *  ======== SHA2_Params_init ========
- */
-void SHA2_Params_init(SHA2_Params *params){
+void SHA2_Params_init(SHA2_Params *params)
+{
     *params = SHA2_defaultParams;
-}
-
-/*
- *  ======== SHA2_OperationOneStepHash_init ========
- */
-void SHA2_OperationOneStepHash_init(SHA2_OperationOneStepHash *operation){
-    memset(operation, 0x00, sizeof(SHA2_OperationOneStepHash));
-}
-
-/*
- *  ======== SHA2_OperationStartHash_init ========
- */
-void SHA2_OperationStartHash_init(SHA2_OperationStartHash *operation){
-    memset(operation, 0x00, sizeof(SHA2_OperationStartHash));
-}
-
-/*
- *  ======== SHA2_OperationProcessHash_init ========
- */
-void SHA2_OperationProcessHash_init(SHA2_OperationProcessHash *operation){
-    memset(operation, 0x00, sizeof(SHA2_OperationProcessHash));
-}
-
-/*
- *  ======== SHA2_OperationFinishHash_init ========
- */
-void SHA2_OperationFinishHash_init(SHA2_OperationFinishHash *operation){
-    memset(operation, 0x00, sizeof(SHA2_OperationFinishHash));
 }

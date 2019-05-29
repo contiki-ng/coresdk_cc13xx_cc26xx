@@ -381,13 +381,37 @@ __STATIC_INLINE void UDMACC26XX_clearInterrupt(UDMACC26XX_Handle handle, uint32_
  */
 __STATIC_INLINE void UDMACC26XX_channelDisable(UDMACC26XX_Handle handle, uint32_t channelBitMask)
 {
-    UDMACC26XX_HWAttrs const *hwAttrs;
+    UDMACC26XX_HWAttrs const *hwAttrs = handle->hwAttrs;
 
-    /* Get the pointer to the hwAttrs and object */
-    hwAttrs = (UDMACC26XX_HWAttrs *)(handle->hwAttrs);
+    HWREG(hwAttrs->baseAddr + UDMA_O_CLEARCHANNELEN) = channelBitMask;
+}
 
-    /* disable DMA channel */
-    uDMAChannelDisable(hwAttrs->baseAddr, channelBitMask);
+/*!
+ *  @internal
+ *  @brief  Function to disable a DMA channel's attributes.
+ *
+ *  Will disable a channel's attributes.
+ *
+ *  @pre    UDMACC26XX_open() has to be called first.
+ *          Calling context: Hwi, Swi, Task
+ *
+ *  @param  handle  A UDMACC26XX_Handle returned from UDMACC26XX_open()
+ *
+ *  @param  channelNum  the channel to configure.
+ *
+ *  @param  attr  Channel attribute to disable.
+ *
+ *
+ *  @return none
+ *
+ *  @sa     UDMACC26XX_channelEnable
+ */
+__STATIC_INLINE void UDMACC26XX_disableAttribute(UDMACC26XX_Handle handle,
+    uint32_t channelNum, uint32_t attr)
+{
+    UDMACC26XX_HWAttrs const *hwAttrs = (UDMACC26XX_HWAttrs *) handle->hwAttrs;
+
+    uDMAChannelAttributeDisable(hwAttrs->baseAddr, channelNum, attr);
 }
 
 /*!

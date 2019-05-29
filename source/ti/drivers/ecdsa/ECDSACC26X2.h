@@ -177,7 +177,7 @@ typedef int_fast16_t (*ECDSACC26X2_stateMachineFxn) (ECDSA_Handle handle);
  *  and pointed to by the ECDSA_config struct.
  */
 typedef struct ECDSACC26X2_HWAttrs_ {
-    /*! @brief Crypto Peripheral's interrupt priority.
+    /*! @brief PKA Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
 
@@ -190,12 +190,6 @@ typedef struct ECDSACC26X2_HWAttrs_ {
         HWI's with priority 0 ignore the HWI dispatcher to support zero-latency interrupts, thus invalidating the critical sections in this driver.
     */
     uint8_t    intPriority;
-        /*! @brief ECC SWI priority.
-        The higher the number, the higher the priority.
-        The minimum is 0 and the maximum is 15 by default.
-        The maximum can be reduced to save RAM by adding or modifying Swi.numPriorities in the kernel configuration file.
-    */
-    uint32_t   swiPriority;
 } ECDSACC26X2_HWAttrs;
 
 /*!
@@ -205,7 +199,9 @@ typedef struct ECDSACC26X2_HWAttrs_ {
  */
 typedef struct ECDSACC26X2_Object_ {
     bool                            isOpen;
-    int_fast16_t                    returnValue;
+    bool                            operationInProgress;
+    bool                            operationCanceled;
+    int_fast16_t                    operationStatus;
     ECDSA_Operation                 operation;
     ECDSA_OperationType             operationType;
     ECDSA_CallbackFxn               callbackFxn;
@@ -216,7 +212,6 @@ typedef struct ECDSACC26X2_Object_ {
     uint32_t                        resultAddress;
     uint32_t                       *scratchNumber1;
     uint32_t                       *scratchNumber2;
-    SwiP_Struct                     callbackSwi;
 } ECDSACC26X2_Object;
 
 #ifdef __cplusplus

@@ -47,8 +47,6 @@
 #include DeviceFamily_constructPath(inc/hw_aux_tdc.h)
 #include DeviceFamily_constructPath(inc/hw_ddi_0_osc.h)
 #include DeviceFamily_constructPath(inc/hw_ddi.h)
-#include DeviceFamily_constructPath(inc/hw_ccfg.h)
-#include DeviceFamily_constructPath(inc/hw_fcfg1.h)
 #include DeviceFamily_constructPath(driverlib/aon_batmon.h)
 #include DeviceFamily_constructPath(driverlib/ddi.h)
 #include DeviceFamily_constructPath(driverlib/ioc.h)
@@ -123,9 +121,9 @@ static bool getTdcSemaphore();
 static void updateSubSecInc(uint32_t tdcResult);
 static void calibrateRcoscHf1(int32_t tdcResult);
 static void calibrateRcoscHf2(int32_t tdcResult);
-void PowerCC26X2_calibrate(void);
 static PowerCC26X2_FsmResult runCalibrateFsm(void);
-static void startTDC(uint32_t aclkPeriodsToMeasure);
+void PowerCC26X2_calibrate(void);
+void PowerCC26X2_RCOSC_clockFunc(uintptr_t arg);
 
 /* Externs */
 extern PowerCC26X2_ModuleState PowerCC26X2_module;
@@ -401,7 +399,11 @@ static PowerCC26X2_FsmResult runCalibrateFsm(void) {
                        DDI_0_OSC_CTL0_ACLK_REF_SRC_SEL_S,
                        ACLK_REF_SRC_RCOSC_LF);
 
-            startTDC(NUM_RCOSC_LF_PERIODS_TO_MEASURE);
+            /* set AUX_SYSIFTDCREFCLKCTL.REQ */
+            HWREG(AUX_SYSIF_BASE + AUX_SYSIF_O_TDCREFCLKCTL) = AUX_SYSIF_TDCREFCLKCTL_REQ;
+
+            /* Delay for ~110us total until TDCRECLKCTL_ACK is ready */
+            ClockP_start(ClockP_handle(&PowerCC26X2_module.calibrationClock));
 
             return PowerCC26X2_FSM_RESULT_WAIT_FOR_TDC;
 
@@ -434,7 +436,11 @@ static PowerCC26X2_FsmResult runCalibrateFsm(void) {
                               DDI_0_OSC_CTL0_ACLK_REF_SRC_SEL_M,
                               DDI_0_OSC_CTL0_ACLK_REF_SRC_SEL_M);
 
-            startTDC(NUM_RCOSC_HF_PERIODS_TO_MEASURE);
+            /* set AUX_SYSIFTDCREFCLKCTL.REQ */
+            HWREG(AUX_SYSIF_BASE + AUX_SYSIF_O_TDCREFCLKCTL) = AUX_SYSIF_TDCREFCLKCTL_REQ;
+
+            /* Delay for ~110us total until TDCRECLKCTL_ACK is ready */
+            ClockP_start(ClockP_handle(&PowerCC26X2_module.calibrationClock));
 
             return PowerCC26X2_FSM_RESULT_WAIT_FOR_TDC;
 
@@ -467,7 +473,11 @@ static PowerCC26X2_FsmResult runCalibrateFsm(void) {
                               DDI_0_OSC_CTL0_ACLK_REF_SRC_SEL_M,
                               DDI_0_OSC_CTL0_ACLK_REF_SRC_SEL_M);
 
-            startTDC(NUM_RCOSC_HF_PERIODS_TO_MEASURE);
+            /* set AUX_SYSIFTDCREFCLKCTL.REQ */
+            HWREG(AUX_SYSIF_BASE + AUX_SYSIF_O_TDCREFCLKCTL) = AUX_SYSIF_TDCREFCLKCTL_REQ;
+
+            /* Delay for ~110us total until TDCRECLKCTL_ACK is ready */
+            ClockP_start(ClockP_handle(&PowerCC26X2_module.calibrationClock));
 
             return PowerCC26X2_FSM_RESULT_WAIT_FOR_TDC;
 
@@ -517,20 +527,18 @@ static PowerCC26X2_FsmResult runCalibrateFsm(void) {
     }
 }
 
-/*
- *  ======== startTDC ========
- *  Configure TDC and start it synchronously. Some prior configuration such as setting
- *  REFCLK source must be done prior.
- */
-static void startTDC(uint32_t aclkPeriodsToMeasure) {
-    /* set AUX_SYSIFTDCREFCLKCTL.REQ */
-    HWREG(AUX_SYSIF_BASE + AUX_SYSIF_O_TDCREFCLKCTL) = AUX_SYSIF_TDCREFCLKCTL_REQ;
+void PowerCC26X2_RCOSC_clockFunc(uintptr_t arg) {
 
-    /* finish wait for AUX_SYSIFTDCREFCLKCTL.ACK to be set ... */
+    /* Wait any remaining time for TDCREFCLKCTL_ACK. Should not spin here at all. */
     while(!(HWREG(AUX_SYSIF_BASE + AUX_SYSIF_O_TDCREFCLKCTL) & AUX_SYSIF_TDCREFCLKCTL_ACK));
 
     /* Set number of periods of ACLK to count */
-    HWREG(AUX_TDC_BASE + AUX_TDC_O_TRIGCNTLOAD) = aclkPeriodsToMeasure;
+    if (PowerCC26X2_module.calStep == PowerCC26X2_STATE_CAL_LF_1) {
+        HWREG(AUX_TDC_BASE + AUX_TDC_O_TRIGCNTLOAD) = NUM_RCOSC_LF_PERIODS_TO_MEASURE;
+    }
+    else {
+        HWREG(AUX_TDC_BASE + AUX_TDC_O_TRIGCNTLOAD) = NUM_RCOSC_HF_PERIODS_TO_MEASURE;
+    }
 
     /* Reset/clear result of TDC */
     HWREG(AUX_TDC_BASE + AUX_TDC_O_CTL) = AUX_TDC_CTL_CMD_CLR_RESULT;
@@ -585,7 +593,6 @@ static void updateSubSecInc(uint32_t tdcResult)
     int32_t newSubSecInc;
     uint32_t oldSubSecInc;
     uint32_t subSecInc;
-    uint32_t ccfgModeConfReg;
     int32_t hposcOffset;
     int32_t hposcOffsetInv;
 
@@ -596,10 +603,8 @@ static void updateSubSecInc(uint32_t tdcResult)
      */
     newSubSecInc = (45813 * tdcResult) / 256;
 
-    /* TODO: Replace with ccfgread driverlib call */
-    ccfgModeConfReg = HWREG( CCFG_BASE + CCFG_O_MODE_CONF );
     /* Compensate HPOSC drift if HPOSC is in use */
-    if(((ccfgModeConfReg & CCFG_MODE_CONF_XOSC_FREQ_M ) >> CCFG_MODE_CONF_XOSC_FREQ_S) == 1) {
+    if(OSC_IsHPOSCEnabled()) {
         /* Get the HPOSC relative offset at this temperature */
         hposcOffset = OSC_HPOSCRelativeFrequencyOffsetGet(AONBatMonTemperatureGetDegC());
         /* Convert to RF core format */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,7 +29,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** ============================================================================
+/*!****************************************************************************
  *  @file       ADCBufCC26XX.h
  *
  *  @brief      ADCBuf driver implementation for a CC26XX analog-to-digital converter
@@ -95,7 +95,8 @@
  * In both ADCBufCC26XX_SAMPING_MODE_SYNCHRONOUS mode and ADCBufCC26XX_SAMPING_MODE_ASYNCHRONOUS mode, enough sampling
  * time must be provided between conversions that each measurement may be completed before the next trigger arrives.
  *
- * @note    The ADCBuf driver requires GPTimer0A to function correctly. It will be unavailable for other uses.
+ * @note    The ADCBuf driver requires GPTimer0A to function correctly. It expects it to be configured as position 0 in the GPTimer Config Table.
+ *          GPTimer0A will be unavailable for other uses.
  *
  * # Supported ADC pins #
  * Below is a table of the supported ADC IO pins for each package size, for both CC26xx and CC13xx.
@@ -262,7 +263,7 @@
  *  Diags_USER1      | basic ADCBuf operations performed    |
  *  Diags_USER2      | detailed ADCBuf operations performed |
  *
- *  ============================================================================
+ ******************************************************************************
  */
 
 #ifndef ti_drivers_adc_adcbufcc26xx__include
@@ -519,8 +520,6 @@ typedef struct ADCBufCC26XX_HWAttrs{
         The maximum can be reduced to save RAM by adding or modifying Swi.numPriorities in the kernel configuration file.
     */
     uint32_t            swiPriority;
-    /*! uDMA controlTable channel index for the GPT */
-    uint32_t            gptDMAChannelMask;
     /*! @brief ADC peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits,
@@ -537,8 +536,6 @@ typedef struct ADCBufCC26XX_HWAttrs{
     uint8_t             intPriority;
     /*! Pointer to a table of ADCBufCC26XX_AdcChannelLutEntry's mapping internal CompBInput to DIO */
     ADCBufCC26XX_AdcChannelLutEntry  const *adcChannelLut;
-    /*! GPTimer unit index (0A, 0B, 1A..) */
-    uint8_t             gpTimerUnit;
 } ADCBufCC26XX_HWAttrs;
 
 

@@ -1,7 +1,7 @@
 /*******************************************************************************
 *  Filename:       rom_crypto.c
-*  Revised:        2017-02-02 12:00:37 +0100 (Thu, 02 Feb 2017)
-*  Revision:       48367
+*  Revised:        2018-09-17 08:57:21 +0200 (Mon, 17 Sep 2018)
+*  Revision:       52619
 *
 *  Description:    This is the implementation for the API to the AES, ECC and
 *                  SHA256 functions built into ROM on the CC26xx.

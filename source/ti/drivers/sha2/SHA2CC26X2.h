@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2018, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -53,73 +53,93 @@
  *
  */
 
-#ifndef ti_drivers_sha2_SHA2CC26XX__include
-#define ti_drivers_sha2_SHA2CC26XX__include
+#ifndef ti_drivers_sha2_SHA2CC26X2__include
+#define ti_drivers_sha2_SHA2CC26X2__include
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#include <ti/drivers/SHA2.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdint.h>
-#include <stdbool.h>
-
-#include <ti/drivers/Power.h>
-#include <ti/drivers/SHA2.h>
-#include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
-
-#include <ti/devices/DeviceFamily.h>
-#include DeviceFamily_constructPath(driverlib/crypto.h)
-
-#include <ti/drivers/dpl/HwiP.h>
-#include <ti/drivers/dpl/SwiP.h>
-#include <ti/drivers/dpl/SemaphoreP.h>
 
 /*!
- *  @brief      SHA2CC26XX Hardware Attributes
+ *  @brief Hardware-specific configuration attributes
  *
- *  SHA226XX hardware attributes should be included in the board file
- *  and pointed to by the SHA2_config struct.
+ *  SHA2CC26X2 hardware attributes are used in the board file by the
+ *  #SHA2_Config struct.
  */
-typedef struct SHA2CC26X2_HWAttrs_ {
-    /*! @brief Crypto Peripheral's interrupt priority.
-
-        The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
-
-        (7 << 5) will apply the lowest priority.
-
-        (1 << 5) will apply the highest priority.
-
-        Setting the priority to 0 is not supported by this driver.
-
-        HWI's with priority 0 ignore the HWI dispatcher to support zero-latency interrupts, thus invalidating the critical sections in this driver.
-    */
-    uint8_t    intPriority;
-    /*! @brief SHA2 SWI priority.
-        The higher the number, the higher the priority.
-        The minimum is 0 and the maximum is 15 by default.
-        The maximum can be reduced to save RAM by adding or modifying Swi.numPriorities in the kernel configuration file.
-    */
-    uint32_t   swiPriority;
+typedef struct {
+    uint8_t    intPriority; /*!< Hardware interrupt priority of the Hash accelerator.
+                             *
+                             * The CC26XX provides 8 interrupt priority levels encoded in three bits:
+                             *
+                             * Value        | Description
+                             * ------------ | -----------------------
+                             * (~0)         | Special value: always lowest priority across all OS kernels.
+                             * (7 << 5)     | Priority level 7: lowest, but rather use ~0 instead.
+                             * ..           | ..
+                             * (0 << 5)     | Priority level 0: highest, not supported by this driver
+                             *
+                             * Hardware interrupts with priority level 0 ignore the hardware interrupt dispatcher
+                             * for minimum latency. This is not supported by this driver.
+                             */
 } SHA2CC26X2_HWAttrs;
 
-/*!
- *  @brief      SHA2CC26XX Object
+
+/*! \cond Internal APIs */
+
+#define SHA2CC26X2_MAX_BLOCK_SIZE_BYTES    (SHA2_BLOCK_SIZE_BYTES_512)
+#define SHA2CC26X2_MAX_DIGEST_LENGTH_BYTES (SHA2_DIGEST_LENGTH_BYTES_512)
+
+/*
+ *  SHACC26XX Object
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct SHA2CC26X2_Object_ {
+typedef struct {
     bool                            isOpen;
-    int_fast16_t                    returnStatus;
+    volatile bool                   operationInProgress;
+    bool                            operationCanceled;
     SHA2_ReturnBehavior             returnBehavior;
-    uint32_t                        semaphoreTimeout;
+    int_fast16_t                    returnStatus;
+    uint32_t                        accessTimeout;
     SHA2_CallbackFxn                callbackFxn;
-    SHA2_Operation                  operation;
-    SHA2_OperationType              operationType;
-    SwiP_Struct                     callbackSwi;
+    SHA2_HashType                   hashType;
+    uint16_t                        bytesInBuffer;
+    uint32_t                        bytesProcessed;
+    uint8_t                         buffer[SHA2CC26X2_MAX_BLOCK_SIZE_BYTES];
+    uint32_t                        digest[SHA2CC26X2_MAX_DIGEST_LENGTH_BYTES / 4];
 } SHA2CC26X2_Object;
+
+/*
+ * This function exists only because of mbedTLS. It is not a
+ * top-level function for now.
+ *
+ * Use it like this:
+ *
+ * SHA2CC26X2_Object object;
+ * const SHA2CC26X2_HWAttrs attrs = {
+ *     .intPriority = 0xFF;
+ * };
+ *
+ * SHA2_Config config = {
+ *     .object = &object,
+ *     .hwAttrs = &hwAttrs
+ * };
+ *
+ * SHA2_Handle handle = SHA2_construct(&config, ...);
+ *
+ */
+SHA2_Handle SHA2CC26X2_construct(SHA2_Config *config, const SHA2_Params *params);
+
+/*! \endcond */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* ti_drivers_sha2_SHA2CC26XX__include */
+#endif /* ti_drivers_sha2_SHA2CC26X2__include */

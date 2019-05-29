@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -84,6 +84,7 @@ static void oscillatorISR(uintptr_t arg);
 extern void PowerCC26X2_calibrate(void);
 extern bool PowerCC26X2_initiateCalibration(void);
 extern void PowerCC26X2_auxISR(uintptr_t arg);
+extern void PowerCC26X2_RCOSC_clockFunc(uintptr_t arg);
 
 /* Externs */
 extern const PowerCC26X2_Config PowerCC26X2_config;
@@ -283,6 +284,27 @@ int_fast16_t Power_init()
                      0,
                      &clockParams);
 
+    /*
+     *  If RCOSC calibration is enabled, construct a Clock object for
+     *  delays. Set timeout to 8 Clock tick periods to get
+     *  ceil(8x10us/30.5us/SCLK_LF_period)*30.5us/SCLK_LF_period = ~90us.
+     *  The total time we need to wait for AUX_SYSIF_TDCREFCLKCTL_ACK
+     *  is about 105us and the ClockP_start() call needs about 21us.
+     *  All together, that makes ~111us. A decent approximation of the
+     *  ideal wait duration.
+     *  In practice, the COMPARE_MARGIN that is currently still in
+     *  the kernel Timer.c implementation may make it take longer
+     *  than 90us to time out.
+     */
+    ClockP_Params_init(&clockParams);
+    clockParams.period = 0;
+    clockParams.startFlag = false;
+    clockParams.arg = 0;
+    ClockP_construct(&PowerCC26X2_module.calibrationClock,
+                     &PowerCC26X2_RCOSC_clockFunc,
+                     8,
+                     &clockParams);
+
     HwiP_construct(&PowerCC26X2_module.oscHwi,
                     INT_OSC_COMB,
                     oscillatorISR, NULL);
@@ -319,12 +341,11 @@ int_fast16_t Power_init()
         /* disallow STANDBY pending LF clock quailifier disabling */
         Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
     }
-
-    /*
-     * else, if the LF clock source is external, can disable clock qualifiers
-     * now; no need to assert DISALLOW_STANDBY or start the Clock object
-     */
     else if (ccfgLfClkSrc == CCFGREAD_SCLK_LF_OPTION_EXTERNAL_LF) {
+        /*
+         * else, if the LF clock source is external, can disable clock qualifiers
+         * now; no need to assert DISALLOW_STANDBY or start the Clock object
+         */
 
         /* yes, disable the LF clock qualifiers */
         DDI16BitfieldWrite(
@@ -337,6 +358,23 @@ int_fast16_t Power_init()
 
         /* enable clock loss detection */
         OSCClockLossEventEnable();
+    }
+    else if(ccfgLfClkSrc == CCFGREAD_SCLK_LF_OPTION_XOSC_HF_DLF) {
+        /* else, user has requested LF to be derived from XOSC_HF */
+
+        /* Turn on oscillator interrupt for SCLK_LF switching.
+         * When using HPOSC, the LF clock will already have switched
+         * and the interrupt will fire once interrupts are enabled
+         * again when the OS starts.
+         * When using a regular HF crystal, it may take a little
+         * time for the crystal to start up
+         */
+        HWREG(PRCM_BASE + PRCM_O_OSCIMSC) |= PRCM_OSCIMSC_LFSRCDONEIM_M;
+
+        /* disallow standby since we cannot go into standby with
+         * an HF derived LF clock
+         */
+        Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
     }
 
     /* if VIMS RAM is configured as GPRAM: set retention constraint */
@@ -623,7 +661,7 @@ int_fast16_t Power_shutdown(uint_fast16_t shutdownState,
         SysCtrlAonSync();
 
         /* now proceed with shutdown sequence ... */
-        SysCtrlShutdown();
+        SysCtrlShutdownWithAbort();
     }
     else {
         status = Power_EBUSY;
@@ -708,8 +746,18 @@ int_fast16_t Power_sleep(uint_fast16_t sleepState)
             if (Power_getDependencyCount(PowerCC26XX_DOMAIN_PERIPH)) {
                 poweredDomains |= PRCM_DOMAIN_PERIPH;
             }
-            /* 2. If XOSC_HF is active, force it off */
-            if(OSCClockSourceGet(OSC_SRC_CLK_HF) == OSC_XOSC_HF) {
+
+            /* 2. If XOSC_HF is active or we are waiting to switch
+             *    to it, force it off. Otherwise, the XOSC_HF may be
+             *    automatically turned on by the hardware without
+             *    a call to configureXOSCHF(PowerCC26XX_ENABLE)
+             *    This is not necessarily a problem. However exactly
+             *    what the cutoff point is where the hardware considers
+             *    the XOSC_HF "on" without having switched to is not
+             *    considered by this driver.
+             */
+            if (OSCClockSourceGet(OSC_SRC_CLK_HF) == OSC_XOSC_HF ||
+                PowerCC26X2_module.xoscPending == true) {
                 xosc_hf_active = true;
                 configureXOSCHF(PowerCC26XX_DISABLE);
             }
@@ -982,6 +1030,12 @@ void PowerCC26XX_switchXOSC_HF(void)
      */
     PowerCC26X2_module.xoscPending = false;
 
+    /* Allow going into IDLE again since we sucessfully switched
+     * to XOSC_HF
+     */
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_IDLE);
+
+    HwiP_restore(key);
 
     /* initiate RCOSC calibration */
     readyToCal = (*(PowerCC26X2_config.calibrateFxn))(PowerCC26X2_INITIATE_CALIBRATE);
@@ -993,8 +1047,6 @@ void PowerCC26XX_switchXOSC_HF(void)
     if (readyToCal == true) {
         (*(PowerCC26X2_config.calibrateFxn))(PowerCC26X2_DO_CALIBRATE);
     }
-
-    HwiP_restore(key);
 }
 
 /* * * * * * * * * * * internal and support functions * * * * * * * * * * */
@@ -1072,6 +1124,22 @@ static void disableLFClockQualifiers(void)
         /* now finish by releasing the standby disallow constraint */
         Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
     }
+    else if(sourceLF == OSC_XOSC_HF) {
+        /* yes, disable the LF clock qualifiers */
+        DDI16BitfieldWrite(
+            AUX_DDI0_OSC_BASE,
+            DDI_0_OSC_O_CTL0,
+            DDI_0_OSC_CTL0_BYPASS_XOSC_LF_CLK_QUAL_M|
+                DDI_0_OSC_CTL0_BYPASS_RCOSC_LF_CLK_QUAL_M,
+            DDI_0_OSC_CTL0_BYPASS_RCOSC_LF_CLK_QUAL_S,
+            0x3
+        );
+
+        /* enable clock loss detection */
+        OSCClockLossEventEnable();
+
+        /* do not allow standby since the LF clock is HF derived */
+    }
 
 }
 
@@ -1144,7 +1212,7 @@ static unsigned int configureRFCoreClocks(unsigned int action)
 }
 
 /*
- *  ======== switchXOSCHFclockFunc ========
+ *  ======== switchXOSCHF ========
  *  Switching to XOSC_HF when it has stabilized.
  */
 static void switchXOSCHF(void)
@@ -1162,7 +1230,17 @@ static void switchXOSCHF(void)
      */
     while (!OSCHF_AttemptToSwitchToXosc());
 
+    /* The only time we should get here is when PowerCC26X2_module.xoscPending == true
+     * holds.
+     * Allow going into IDLE again since we sucessfully switched
+     * to XOSC_HF
+     */
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_IDLE);
+
     PowerCC26X2_module.xoscPending = false;
+
+
+    HwiP_restore(key);
 
     /* initiate RCOSC calibration */
     readyToCal = (*(PowerCC26X2_config.calibrateFxn))(PowerCC26X2_INITIATE_CALIBRATE);
@@ -1174,8 +1252,6 @@ static void switchXOSCHF(void)
     if (readyToCal == true) {
         (*(PowerCC26X2_config.calibrateFxn))(PowerCC26X2_DO_CALIBRATE);
     }
-
-    HwiP_restore(key);
 }
 
 /*
@@ -1183,7 +1259,15 @@ static void switchXOSCHF(void)
  */
 static unsigned int configureXOSCHF(unsigned int action)
 {
-    if (action == PowerCC26XX_ENABLE && OSCClockSourceGet(OSC_SRC_CLK_HF) != OSC_XOSC_HF) {
+    /* By checking action == PowerCC26XX_ENABLE and PowerCC26X2_module.xoscPending
+     * carefully, the function should be idempotent. Calling it with the same
+     * action more than once will not have any effect until the hardware triggers
+     * a software state change.
+     */
+    if (action == PowerCC26XX_ENABLE &&
+        OSCClockSourceGet(OSC_SRC_CLK_HF) != OSC_XOSC_HF &&
+        PowerCC26X2_module.xoscPending == false) {
+
         OSCHF_TurnOnXosc();
 
         PowerCC26X2_module.xoscPending = true;
@@ -1197,11 +1281,37 @@ static unsigned int configureXOSCHF(unsigned int action)
             /* Turn on oscillator interrupt for SCLK_HF switching */
             HWREG(PRCM_BASE + PRCM_O_OSCIMSC) |= PRCM_OSCIMSC_HFSRCPENDIM_M;
         }
+
+        /* If the device goes into IDLE in between turning on XOSC_HF and
+         * and switching SCLK_HF to XOSC_HF, the INT_OSC_COMB HFSRCPEND
+         * trigger will be suppressed.
+         * The DISALLOW_IDLE constraint should only ever be set whenever
+         * we transition from xoscPending == false to true.
+         */
+        Power_setConstraint(PowerCC26XX_DISALLOW_IDLE);
     }
 
     /* when release XOSC_HF, auto switch to RCOSC_HF */
-    else {
+    else if (action == PowerCC26XX_DISABLE) {
         OSCHF_SwitchToRcOscTurnOffXosc();
+
+        /* If we have not actually switched to XOSC_HF yet, we need to
+         * undo what we did above when turning on XOSC_HF. Otherwise,
+         * we may not balance the constraints correctly or get
+         * unexpected interrupts.
+         */
+        if (PowerCC26X2_module.xoscPending) {
+            /* Remove HFSRCPEND from the OSC_COMB interrupt mask */
+            uint32_t oscMask = HWREG(PRCM_BASE + PRCM_O_OSCIMSC);
+            HWREG(PRCM_BASE + PRCM_O_OSCIMSC) = oscMask & ~ PRCM_OSCIMSC_HFSRCPENDIM_M;
+
+            /* Clear any residual trigger for HFSRCPEND */
+            HWREG(PRCM_BASE + PRCM_O_OSCICR) = PRCM_OSCICR_HFSRCPENDC;
+
+            Power_releaseConstraint(PowerCC26XX_DISALLOW_IDLE);
+
+            PowerCC26X2_module.xoscPending = false;
+        }
     }
     return (0);
 }

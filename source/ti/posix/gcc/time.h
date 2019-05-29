@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (c) 2017-2019 Texas Instruments Incorporated - http://www.ti.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -112,6 +112,8 @@ extern int timer_delete(timer_t timerid);
 extern int timer_gettime(timer_t timerid, struct itimerspec *its);
 extern int timer_settime(timer_t timerid, int flags,
         const struct itimerspec *value, struct itimerspec *ovalue);
+
+extern int nanosleep(const struct timespec *rqtp, struct timespec *rmtp);
 
 #ifdef __cplusplus
 }

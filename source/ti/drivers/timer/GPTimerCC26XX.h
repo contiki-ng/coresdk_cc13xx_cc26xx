@@ -111,7 +111,8 @@
  *    GPTimerCC26XX_Params params;
  *    GPTimerCC26XX_Params_init(&params);
  *    params.width          = GPT_CONFIG_16BIT;
- *    params.mode           = GPT_MODE_PERIODIC_UP;
+ *    params.mode           = GPT_MODE_PERIODIC;
+ *    params.direction      = GPTimerCC26XX_DIRECTION_UP;
  *    params.debugStallMode = GPTimerCC26XX_DEBUG_STALL_OFF;
  *    hTimer = GPTimerCC26XX_open(CC2650_GPTIMER0A, &params);
  *    if(hTimer == NULL) {
@@ -158,6 +159,12 @@ extern "C" {
 #include DeviceFamily_constructPath(driverlib/ioc.h)
 #include DeviceFamily_constructPath(driverlib/timer.h)
 
+/* Backwards compatibility - old timer modes. New behaviour is count-up by default but configurable. */
+#define GPT_MODE_ONESHOT_UP GPT_MODE_ONESHOT
+#define GPT_MODE_PERIODIC_UP GPT_MODE_PERIODIC
+#define GPT_MODE_EDGE_COUNT_UP GPT_MODE_EDGE_COUNT
+#define GPT_MODE_EDGE_TIME_UP GPT_MODE_EDGE_TIME
+
 /*!
  *  @brief
  *  Definitions for specifying the GPTimer configuration (width)
@@ -179,23 +186,18 @@ typedef enum GPTimerCC26XX_Width
 typedef enum GPTimerCC26XX_Mode
 {
     /* One shot mode counting upwards */
-    GPT_MODE_ONESHOT_UP    = GPT_TAMR_TAMR_ONE_SHOT | GPT_TAMR_TACDIR_UP | \
-                             GPT_TAMR_TAMIE,
+    GPT_MODE_ONESHOT    = GPT_TAMR_TAMR_ONE_SHOT | GPT_TAMR_TAMIE,
     /* Periodic mode counting upwards */
-    GPT_MODE_PERIODIC_UP   = GPT_TAMR_TAMR_PERIODIC | GPT_TAMR_TACDIR_UP | \
-                             GPT_TAMR_TAMIE,
+    GPT_MODE_PERIODIC   = GPT_TAMR_TAMR_PERIODIC | GPT_TAMR_TAMIE,
     /* Edge count mode counting upwards */
-    GPT_MODE_EDGE_COUNT_UP = GPT_TAMR_TAMR_CAPTURE | GPT_TAMR_TACDIR_UP | \
-                             GPT_TAMR_TACM_EDGCNT,
+    GPT_MODE_EDGE_COUNT = GPT_TAMR_TAMR_CAPTURE  | GPT_TAMR_TACM_EDGCNT,
     /* Edge count mode counting upwards */
-    GPT_MODE_EDGE_TIME_UP  = GPT_TAMR_TAMR_CAPTURE | GPT_TAMR_TACDIR_UP | \
-                             GPT_TAMR_TACM_EDGTIME,
+    GPT_MODE_EDGE_TIME  = GPT_TAMR_TAMR_CAPTURE  | GPT_TAMR_TACM_EDGTIME,
     /* PWM mode counting downwards. This specific configuration is used by the
        PWM2TimerCC26XX driver */
-    GPT_MODE_PWM           = GPT_TAMR_TAMR_PERIODIC      | GPT_TAMR_TACDIR_UP   | \
+    GPT_MODE_PWM           = GPT_TAMR_TAMR_PERIODIC      | GPT_TAMR_TAPWMIE_EN  | \
                              GPT_TAMR_TAAMS_PWM          | GPT_TAMR_TACM_EDGCNT | \
-                             GPT_TAMR_TAPLO_CCP_ON_TO    | GPT_TAMR_TAPWMIE_EN  | \
-                             GPT_TAMR_TAMRSU_CYCLEUPDATE,
+                             GPT_TAMR_TAPLO_CCP_ON_TO,
 } GPTimerCC26XX_Mode;
 
 /*!
@@ -261,6 +263,32 @@ typedef enum GPTimerCC26XX_DebugMode
 
 /*!
  *  @brief
+ *  Definitions for controlling timer counting direction.
+ *  Setting the Direction for PWM operation has no effect (always counts down).
+ */
+typedef enum GPTimerCC26XX_Direction
+{
+    GPTimerCC26XX_DIRECTION_DOWN = 0,
+    GPTimerCC26XX_DIRECTION_UP,
+} GPTimerCC26XX_Direction;
+
+/*!
+ *  @brief
+ *  Definitions for new value loading behaviour.
+ *
+ *  If set to NEXT_CLOCK, then the new match value is updated immediately.
+ *  If set to ON_TIMEOUT the new match will only be applied to the next timer cycle.
+ *
+ *  Only match setting is affected by this option. Load setting is always applied immediately.
+ */
+typedef enum GPTimerCC26XX_SetMatchTiming
+{
+    GPTimerCC26XX_SET_MATCH_NEXT_CLOCK = 0,
+    GPTimerCC26XX_SET_MATCH_ON_TIMEOUT,
+} GPTimerCC26XX_SetMatchTiming;
+
+/*!
+ *  @brief
  *  Definitions for controlling edges used for timer capture.
  *  Used in GPTimer edge-time and edge-count modes.
  */
@@ -273,7 +301,7 @@ typedef enum GPTimerCC26XX_Edge
 
 
 /* Forward declaration of GPTimer configuration */
-typedef const struct GPTimerCC26XX_Config   GPTimerCC26XX_Config;
+typedef struct GPTimerCC26XX_Config   GPTimerCC26XX_Config;
 
 /* GPTimer handle is pointer to configuration structure */
 typedef GPTimerCC26XX_Config *              GPTimerCC26XX_Handle;
@@ -392,9 +420,11 @@ struct GPTimerCC26XX_Config
  */
 typedef struct GPTimerCC26XX_Params
 {
-    GPTimerCC26XX_Width     width;          /*!< Timer configuration (32/16-bit)  */
-    GPTimerCC26XX_Mode      mode;           /*!< Timer mode */
-    GPTimerCC26XX_DebugMode debugStallMode; /*!< Timer debug stall mode */
+    GPTimerCC26XX_Width             width;          /*!< Timer configuration (32/16-bit)  */
+    GPTimerCC26XX_Mode              mode;           /*!< Timer mode */
+    GPTimerCC26XX_SetMatchTiming    matchTiming;    /*!< Set new match values on next timeout or next cycle */
+    GPTimerCC26XX_Direction         direction;      /*!< Count up or down */
+    GPTimerCC26XX_DebugMode         debugStallMode; /*!< Timer debug stall mode */
 } GPTimerCC26XX_Params;
 
 

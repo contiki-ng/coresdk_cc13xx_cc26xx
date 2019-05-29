@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,12 +29,13 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/*!
+/*!****************************************************************************
  * @file ECDSA.h
  *
  * @brief TI Driver for Elliptic Curve Digital Signature Algorithm.
  *
  *
+ * @anchor ti_drivers_ECDSA_Overview
  * # Overview #
  *
  * The Elliptic Curve Digital Signature Algorithm (ECDSA) is a message
@@ -68,7 +69,7 @@
  *  - The recipient accepts the signature if the received and calculated r
  *    match. Otherwise, they reject the signature.
  *
- *
+ * @anchor ti_drivers_ECDSA_Usage
  * # Usage #
  *
  * ## Before starting an ECDSA operation #
@@ -142,46 +143,53 @@
  * | Montgomery         | [X, Y]                | 2 * Curve Param Length    |
  * | Edwards            | [X, Y]                | 2 * Curve Param Length    |
  *
- * ## ECDSA Driver Configuration #
- *
- * In order to use the ECDSA APIs, the application is required
- * to provide device-specific ECDSA configuration in the Board.c file.
- * The ECDSA driver interface defines a configuration data structure:
- *
+ * @anchor ti_drivers_ECDSA_Synopsis
+ * ## Synopsis
+ * @anchor ti_drivers_ECDSA_Synopsis_Code
  * @code
- * typedef struct ECDSA_Config_ {
- *     void                   *object;
- *     void          const    *hwAttrs;
- * } ECDSA_Config;
- * @endcode
+ * // Import ECDSA Driver definitions
+ * #include <ti/drivers/ECDSA.h>
  *
- * The application must declare an array of ECDSA_Config elements, named
- * ECDSA_config[].  Each element of ECDSA_config[] must be populated with
- * pointers to a device specific ECDSA driver implementation's
- * driver object, hardware attributes.
- * Each element in ECDSA_config[] corresponds to
- * an ECDSA instance, and none of the elements should have NULL pointers.
- * There is no correlation between the index and the
- * peripheral designation (such as ECDSA0 or ECDSA1).  For example, it is
- * possible to use ECDSA_config[0] for ECDSA1. Multiple drivers and driver
- * instances may all access the same underlying hardware. This is transparent
- * to the application. Mutual exclusion is performed automatically by the
- * drivers as necessary.
+ * // Since we are using default ECDSA_Params, we just pass in NULL for that parameter.
+ * ecdsaHandle = ECDSA_open(0, NULL);
  *
- * Because the ECDSA configuration is highly device dependent, you will need to
- * check the doxygen for the device specific ECDSA implementation.  There you
- * will find a description of the ECDSA hardware attributes.  Please also
- * refer to the Board.c file of any of your examples to see the ECDSA
- * configuration.
+ * if (!ecdsaHandle) {
+ *     // Handle error
+ * }
  *
- * ## ECDSA Parameters #
+ * // Initialize myPrivateKey
+ * CryptoKeyPlaintext_initKey(&myPrivateKey, myPrivateKeyingMaterial, sizeof(myPrivateKeyingMaterial));
+ * CryptoKeyPlaintext_initKey(&pmsnKey, pmsn, sizeof(pmsn));
  *
- * The #ECDSA_Params structure is passed to the ECDSA_open() call.  If NULL
- * is passed for the parameters, ECDSA_open() uses default parameters.
- * An #ECDSA_Params structure is initialized with default values by passing
- * it to ECDSA_Params_init().
- * Some of the ECDSA parameters are described below. To see brief descriptions
- * of all the parameters, see #ECDSA_Params.
+ * // Initialize the operation
+ * ECDSA_OperationSign_init(&operationSign);
+ * operationSign.curve             = &ECCParams_NISTP256;
+ * operationSign.myPrivateKey      = &myPrivateKey;
+ * operationSign.pmsn              = &pmsnKey;
+ * operationSign.hash              = messageHash;
+ * operationSign.r                 = r;
+ * operationSign.s                 = s;
+ *
+ * // Generate the signature
+ * operationResult = ECDSA_sign(ecdsaHandle, &operationSign);
+ *
+ * // Initialize theirPublicKey
+ * CryptoKeyPlaintext_initKey(&theirPublicKey, theirPublicKeyingMaterial, sizeof(theirPublicKeyingMaterial));
+ *
+ * ECDSA_OperationVerify_init(&operationVerify);
+ * operationVerify.curve           = &ECCParams_NISTP256;
+ * operationVerify.theirPublicKey  = &theirPublicKey;
+ * operationVerify.hash            = messageHash;
+ * operationVerify.r               = r;
+ * operationVerify.s               = s;
+ *
+ * // Generate the keying material for myPublicKey and store it in myPublicKeyingMaterial
+ * operationResult = ECDSA_verify(ecdsaHandle, &operationVerify);
+ *
+ * // Close the driver
+ * ECDSA_close(ecdsaHandle);
+ *
+ * @anchor ti_drivers_ECDSA_Examples
  *
  * # Examples #
  *
@@ -343,27 +351,8 @@ extern "C" {
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 #include <ti/drivers/cryptoutils/ecc/ECCParams.h>
 
-/**
- *  @defgroup ECDSA_CONTROL ECDSA_control command and status codes
- *  These ECDSA macros are reservations for ECDSA.h
- *  @{
- */
-
 /*!
- * Common ECDSA_control command code reservation offset.
- * ECDSA driver implementations should offset command codes with ECDSA_CMD_RESERVED
- * growing positively
- *
- * Example implementation specific command codes:
- * @code
- * #define ECDSAXYZ_CMD_COMMAND0     ECDSA_CMD_RESERVED + 0
- * #define ECDSAXYZ_CMD_COMMAND1     ECDSA_CMD_RESERVED + 1
- * @endcode
- */
-#define ECDSA_CMD_RESERVED           (32)
-
-/*!
- * Common ECDSA_control status code reservation offset.
+ * Common ECDSA status code reservation offset.
  * ECDSA driver implementations should offset status codes with
  * ECDSA_STATUS_RESERVED growing negatively.
  *
@@ -375,13 +364,6 @@ extern "C" {
  * @endcode
  */
 #define ECDSA_STATUS_RESERVED        (-32)
-
-/**
- *  @defgroup ECDSA_STATUS Status Codes
- *  ECDSA_STATUS_* macros are general status codes returned by ECDSA functions
- *  @{
- *  @ingroup ECDSA_CONTROL
- */
 
 /*!
  * @brief   Successful status code.
@@ -400,15 +382,6 @@ extern "C" {
 #define ECDSA_STATUS_ERROR           (-1)
 
 /*!
- * @brief   An error status code returned by ECDSA_control() for undefined
- * command codes.
- *
- * ECDSA_control() returns ECDSA_STATUS_UNDEFINEDCMD if the control code is not
- * recognized by the driver implementation.
- */
-#define ECDSA_STATUS_UNDEFINEDCMD    (-2)
-
-/*!
  * @brief   An error status code returned if the hardware or software resource
  * is currently unavailable.
  *
@@ -416,7 +389,7 @@ extern "C" {
  * many clients can simultaneously perform operations. This status code is returned
  * if the mutual exclusion mechanism signals that an operation cannot currently be performed.
  */
-#define ECDSA_STATUS_RESOURCE_UNAVAILABLE (-3)
+#define ECDSA_STATUS_RESOURCE_UNAVAILABLE (-2)
 
 /*!
  * @brief   The PMSN passed into the the call is invalid.
@@ -424,7 +397,7 @@ extern "C" {
  * PMSNs must be integers in the interval [1, n - 1], where n is the
  * order of the curve.
  */
-#define ECDSA_STATUS_INVALID_PMSN (-4)
+#define ECDSA_STATUS_INVALID_PMSN (-3)
 
 /*!
  * @brief   The r value passed in is larger than the order of the curve.
@@ -432,15 +405,15 @@ extern "C" {
  * Signature components (r and s) must be integers in the interval [1, n - 1], where n is the
  * order of the curve.
  */
-#define ECDSA_STATUS_R_LARGER_THAN_ORDER (-5)
+#define ECDSA_STATUS_R_LARGER_THAN_ORDER (-4)
 
 /*!
- * @brief   The r value passed in is larger than the order of the curve.
+ * @brief   The s value passed in is larger than the order of the curve.
  *
  * Signature components (r and s) must be integers in the interval [1, n - 1], where n is the
  * order of the curve.
  */
-#define ECDSA_STATUS_S_LARGER_THAN_ORDER (-6)
+#define ECDSA_STATUS_S_LARGER_THAN_ORDER (-5)
 
 /*!
  * @brief   The public key of the other party does not lie upon the curve.
@@ -448,7 +421,7 @@ extern "C" {
  * The public key received from the other party does not lie upon the agreed upon
  * curve.
  */
-#define ECDSA_STATUS_PUBLIC_KEY_NOT_ON_CURVE (-7)
+#define ECDSA_STATUS_PUBLIC_KEY_NOT_ON_CURVE (-6)
 
 /*!
  * @brief   A coordinate of the public key of the other party is too large.
@@ -457,36 +430,24 @@ extern "C" {
  * the prime of the curve. This implies that the point was not correctly
  * generated on that curve.
  */
-#define ECDSA_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME (-8)
+#define ECDSA_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME (-7)
 
 /*!
  * @brief   The public key to verify against is the point at infinity.
  *
  * The point at infinity is not a valid input.
  */
-#define ECDSA_STATUS_POINT_AT_INFINITY (-9)
+#define ECDSA_STATUS_POINT_AT_INFINITY (-8)
 
-
-/** @}*/
-
-/**
- *  @defgroup ECDSA_CMD Command Codes
- *  ECDSA_CMD_* macros are general command codes for ECDSA_control(). Not all ECDSA
- *  driver implementations support these command codes.
- *  @{
- *  @ingroup ECDSA_CONTROL
+/*!
+ *  @brief  The ongoing operation was canceled.
  */
-
-/* Add ECDSA_CMD_<commands> here */
-
-/** @}*/
-
-/** @}*/
+#define ECDSA_STATUS_CANCELED (-9)
 
 /*!
  *  @brief  A handle that is returned from an ECDSA_open() call.
  */
-typedef struct ECDSA_Config_    *ECDSA_Handle;
+typedef struct ECDSA_Config *ECDSA_Handle;
 
 /*!
  * @brief   The way in which ECDSA function calls return after performing an
@@ -509,7 +470,7 @@ typedef struct ECDSA_Config_    *ECDSA_Handle;
  * |ECDSA_RETURN_BEHAVIOR_POLLING   | X     | X     | X     |
  *
  */
-typedef enum ECDSA_ReturnBehavior_ {
+typedef enum {
     ECDSA_RETURN_BEHAVIOR_CALLBACK = 1,     /*!< The function call will return immediately while the
                                              *   ECDSA operation goes on in the background. The registered
                                              *   callback function is called after the operation completes.
@@ -537,7 +498,7 @@ typedef enum ECDSA_ReturnBehavior_ {
  *
  *  @sa     ECDSA_init()
  */
-typedef struct ECDSA_Config_ {
+typedef struct ECDSA_Config {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -548,7 +509,7 @@ typedef struct ECDSA_Config_ {
 /*!
  *  @brief  Struct containing the parameters required for signing a message.
  */
-typedef struct ECDSA_OperationSign_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;                     /*!< A pointer to the elliptic curve parameters */
     const CryptoKey                 *myPrivateKey;              /*!< A pointer to the private ECC key that will
                                                                  *   sign the hash of the message
@@ -577,7 +538,7 @@ typedef struct ECDSA_OperationSign_ {
 /*!
  *  @brief  Struct containing the parameters required for verifying a message.
  */
-typedef struct ECDSA_OperationVerify_ {
+typedef struct {
     const ECCParams_CurveParams     *curve;             /*!< A pointer to the elliptic curve parameters */
     const CryptoKey                 *theirPublicKey;    /*!< A pointer to the public key of the party
                                                          *   that signed the hash of the message
@@ -598,7 +559,7 @@ typedef struct ECDSA_OperationVerify_ {
 /*!
  *  @brief  Union containing pointers to all supported operation structs.
  */
-typedef union ECDSA_Operation_ {
+typedef union {
     ECDSA_OperationSign     *sign;      /*!< A pointer to an ECDSA_OperationSign struct */
     ECDSA_OperationVerify   *verify;    /*!< A pointer to an ECDSA_OperationVerify struct */
 } ECDSA_Operation;
@@ -606,7 +567,7 @@ typedef union ECDSA_Operation_ {
 /*!
  *  @brief  Enum for the operation types supported by the driver.
  */
-typedef enum ECDSA_OperationType_ {
+typedef enum {
     ECDSA_OPERATION_TYPE_SIGN = 1,
     ECDSA_OPERATION_TYPE_VERIFY = 2,
 } ECDSA_OperationType;
@@ -642,7 +603,7 @@ typedef void (*ECDSA_CallbackFxn) (ECDSA_Handle handle,
  *
  *  @sa     ECDSA_Params_init()
  */
-typedef struct ECDSA_Params_ {
+typedef struct {
     ECDSA_ReturnBehavior    returnBehavior;             /*!< Blocking, callback, or polling return behavior */
     ECDSA_CallbackFxn       callbackFxn;                /*!< Callback function pointer */
     uint32_t                timeout;                    /*!< Timeout in system ticks before the operation fails
@@ -673,45 +634,6 @@ void ECDSA_init(void);
  *  @sa     ECDSA_open()
  */
 void ECDSA_close(ECDSA_Handle handle);
-
-/*!
- *  @brief  Function performs implementation specific features on a given
- *          ECDSA_Handle.
- *
- *  Commands for ECDSA_control can originate from ECDSA.h or from implementation
- *  specific ECDSA*.h (_ECDSACC26X2.h_, _ECDSASP432.h_, etc.. ) files.
- *  While commands from ECDSA.h are API portable across driver implementations,
- *  not all implementations may support all these commands.
- *  Conversely, commands from driver implementation specific ECDSA*.h files add
- *  unique driver capabilities but are not API portable across all ECDSA driver
- *  implementations.
- *
- *  Commands supported by ECDSA.h follow an ECDSA_CMD_\<cmd\> naming
- *  convention.<br>
- *  Commands supported by ECDSA*.h follow an ECDSA*_CMD_\<cmd\> naming
- *  convention.<br>
- *  Each control command defines @b arg differently. The types of @b arg are
- *  documented with each command.
- *
- *  See @ref ECDSA_CMD "ECDSA_control command codes" for command codes.
- *
- *  See @ref ECDSA_STATUS "ECDSA_control return status codes" for status codes.
- *
- *  @pre    ECDSA_open() has to be called first.
- *
- *  @param  handle      An ECDSA handle returned from ECDSA_open()
- *
- *  @param  cmd         ECDSA.h or ECDSA*.h commands.
- *
- *  @param  args        An optional R/W (read/write) command argument
- *                      accompanied with cmd
- *
- *  @return Implementation specific return codes. Negative values indicate
- *          unsuccessful operations.
- *
- *  @sa     ECDSA_open()
- */
-int_fast16_t ECDSA_control(ECDSA_Handle handle, uint32_t cmd, void *args);
 
 /*!
  *  @brief  This function opens a given ECDSA peripheral.
@@ -780,6 +702,11 @@ void ECDSA_OperationVerify_init(ECDSA_OperationVerify *operation);
  *                                  buffers necessary to perform the operation
  *  @sa ECDSA_verify()
  *
+ *  @retval #ECDSA_STATUS_SUCCESS               The operation succeeded.
+ *  @retval #ECDSA_STATUS_ERROR                 The operation failed.
+ *  @retval #ECDSA_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
+ *  @retval #ECDSA_STATUS_CANCELED              The operation was canceled.
+ *  @retval #ECDSA_STATUS_INVALID_PMSN          The PMSN passed into the the call is invalid.
  */
 int_fast16_t ECDSA_sign(ECDSA_Handle handle, ECDSA_OperationSign *operation);
 
@@ -795,8 +722,33 @@ int_fast16_t ECDSA_sign(ECDSA_Handle handle, ECDSA_OperationSign *operation);
  *                                  buffers necessary to perform the operation
  *
  *  @sa ECDSA_sign()
+ *
+ *  @retval #ECDSA_STATUS_SUCCESS                       The operation succeeded.
+ *  @retval #ECDSA_STATUS_ERROR                         The operation failed. This is the return status if the signature did not match.
+ *  @retval #ECDSA_STATUS_RESOURCE_UNAVAILABLE          The required hardware resource was not available. Try again later.
+ *  @retval #ECDSA_STATUS_CANCELED                      The operation was canceled.
+ *  @retval #ECDSA_STATUS_R_LARGER_THAN_ORDER           The r value passed in is larger than the order of the curve.
+ *  @retval #ECDSA_STATUS_S_LARGER_THAN_ORDER           The s value passed in is larger than the order of the curve.
+ *  @retval #ECDSA_STATUS_PUBLIC_KEY_NOT_ON_CURVE       The public key of the other party does not lie upon the curve.
+ *  @retval #ECDSA_STATUS_PUBLIC_KEY_LARGER_THAN_PRIME  One of the public key coordinates is larger the the curve's prime.
+ *  @retval #ECDSA_STATUS_POINT_AT_INFINITY             The public key to verify against is the point at infinity.
  */
 int_fast16_t ECDSA_verify(ECDSA_Handle handle, ECDSA_OperationVerify *operation);
+
+/*!
+ *  @brief Cancels an ongoing ECDSA operation.
+ *
+ *  Asynchronously cancels an ECDSA operation. Only available when using
+ *  ECDSA_RETURN_BEHAVIOR_CALLBACK or ECDSA_RETURN_BEHAVIOR_BLOCKING.
+ *  The operation will terminate as though an error occured. The
+ *  return status code of the operation will be ECDSA_STATUS_CANCELED.
+ *
+ *  @param  handle Handle of the operation to cancel
+ *
+ *  @retval #ECDSA_STATUS_SUCCESS               The operation was canceled.
+ *  @retval #ECDSA_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
+ */
+int_fast16_t ECDSA_cancelOperation(ECDSA_Handle handle);
 
 #ifdef __cplusplus
 }

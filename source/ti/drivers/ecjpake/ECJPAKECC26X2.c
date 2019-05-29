@@ -70,7 +70,6 @@
 
 /* Forward declarations */
 static void ECJPAKECC26X2_hwiFxn (uintptr_t arg0);
-static void ECJPAKECC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1);
 static void ECJPAKECC26X2_internalCallbackFxn (ECJPAKE_Handle handle,
                                                int_fast16_t returnStatus,
                                                ECJPAKE_Operation operation,
@@ -100,8 +99,6 @@ static void ECJPAKECC26X2_internalCallbackFxn (ECJPAKE_Handle handle,
                                                ECJPAKE_OperationType operationType) {
     ECJPAKECC26X2_Object *object = handle->object;
 
-    object->returnValue = returnStatus;
-
     /* This function is only ever registered when in ECJPAKE_RETURN_BEHAVIOR_BLOCKING
      * or ECJPAKE_RETURN_BEHAVIOR_POLLING.
      */
@@ -118,28 +115,34 @@ static void ECJPAKECC26X2_internalCallbackFxn (ECJPAKE_Handle handle,
  */
 static void ECJPAKECC26X2_hwiFxn (uintptr_t arg0) {
     ECJPAKECC26X2_Object *object = ((ECJPAKE_Handle)arg0)->object;
+    uint32_t key;
 
-    // Disable interrupt again
+    /* Disable interrupt again */
     IntDisable(INT_PKA_IRQ);
 
-    SwiP_post(&(object->callbackSwi));
-}
-
-/*
- *  ======== ECJPAKECC26X2_swiFxn ========
- */
-static void ECJPAKECC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
-    ECJPAKECC26X2_Object *object = ((ECJPAKE_Handle)arg0)->object;
-    int_fast16_t fsmResult;
-
     do {
-        fsmResult = ECJPAKECC26X2_runFSM((ECJPAKE_Handle)arg0);
+        object->operationStatus = ECJPAKECC26X2_runFSM((ECJPAKE_Handle)arg0);
         object->fsmState++;
-    } while (fsmResult == ECJPAKECC26X2_STATUS_FSM_RUN_FSM);
+    } while (object->operationStatus == ECJPAKECC26X2_STATUS_FSM_RUN_FSM);
 
-    switch (fsmResult) {
+    /* We need a critical section here in case the operation is canceled
+     * asynchronously.
+     */
+    key = HwiP_disable();
+
+    if(object->operationCanceled) {
+        /* Set function register to 0. This should stop the current operation */
+        HWREG(PKA_BASE + PKA_O_FUNCTION) = 0;
+
+        object->operationStatus = ECJPAKE_STATUS_CANCELED;
+    }
+
+    switch (object->operationStatus) {
         case ECJPAKECC26X2_STATUS_FSM_RUN_PKA_OP:
-            /* Do nothing. The PKA or TRNG hardware
+
+            HwiP_restore(key);
+
+            /* Do nothing. The PKA hardware
              * will execute in the background and post
              * this SWI when it is done.
              */
@@ -148,7 +151,27 @@ static void ECJPAKECC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
             /* Intentional fall through */
         case ECJPAKE_STATUS_ERROR:
             /* Intentional fall through */
+        case ECJPAKE_STATUS_CANCELED:
+            /* Intentional fall through */
         default:
+
+            /* Mark this operation as complete */
+            object->operationInProgress = false;
+
+            /* Clear any pending interrupt in case a transaction kicked off
+             * above already finished
+             */
+            IntDisable(INT_PKA_IRQ);
+            IntPendClear(INT_PKA_IRQ);
+
+            /* We can end the critical section since the operation may no
+             * longer be canceled
+             */
+            HwiP_restore(key);
+
+            /* Make sure there is no keying material remaining in PKA RAM */
+            PKAClearPkaRam();
+
             /*  Grant access for other threads to use the crypto module.
              *  The semaphore must be posted before the callbackFxn to allow the chaining
              *  of operations.
@@ -158,7 +181,7 @@ static void ECJPAKECC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
             Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
             object->callbackFxn((ECJPAKE_Handle)arg0,
-                                fsmResult,
+                                object->operationStatus,
                                 object->operation,
                                 object->operationType);
     }
@@ -982,14 +1005,16 @@ static int_fast16_t ECJPAKECC26X2_waitForAccess(ECJPAKE_Handle handle) {
 static int_fast16_t ECJPAKECC26X2_waitForResult(ECJPAKE_Handle handle){
     ECJPAKECC26X2_Object *object = handle->object;
 
+    object->operationInProgress = true;
+
     switch (object->returnBehavior) {
         case ECJPAKE_RETURN_BEHAVIOR_POLLING:
             while(!PKAResourceCC26XX_pollingFlag);
-            return object->returnValue;
+            return object->operationStatus;
 
         case ECJPAKE_RETURN_BEHAVIOR_BLOCKING:
             SemaphoreP_pend(&PKAResourceCC26XX_operationSemaphore, SemaphoreP_WAIT_FOREVER);
-            return object->returnValue;
+            return object->operationStatus;
 
         case ECJPAKE_RETURN_BEHAVIOR_CALLBACK:
             return ECJPAKE_STATUS_SUCCESS;
@@ -1004,23 +1029,9 @@ static int_fast16_t ECJPAKECC26X2_waitForResult(ECJPAKE_Handle handle){
  *  ======== ECJPAKE_init ========
  */
 void ECJPAKE_init(void) {
-    uint_least8_t i;
-    uint_fast8_t key;
+    PKAResourceCC26XX_constructRTOSObjects();
 
-    key = HwiP_disable();
-
-    if (!isInitialized) {
-        /* Call each instances' driver init function */
-        for (i = 0; i < ECJPAKE_count; i++) {
-            ECJPAKE_Handle handle = (ECJPAKE_Handle)&(ECJPAKE_config[i]);
-            ECJPAKECC26X2_Object *object = (ECJPAKECC26X2_Object *)handle->object;
-            object->isOpen = false;
-        }
-
-        isInitialized = true;
-    }
-
-    HwiP_restore(key);
+    isInitialized = true;
 }
 
 
@@ -1038,11 +1049,6 @@ void ECJPAKE_close(ECJPAKE_Handle handle) {
     /* Release power dependency on PKA Module. */
     Power_releaseDependency(PowerCC26X2_PERIPH_PKA);
 
-    /* Destroy the SWI */
-    SwiP_destruct(&(object->callbackSwi));
-
-    PKAResourceCC26XX_destructRTOSObjects();
-
     /* Mark the module as available */
     object->isOpen = false;
 }
@@ -1052,15 +1058,12 @@ void ECJPAKE_close(ECJPAKE_Handle handle) {
  *  ======== ECJPAKE_open ========
  */
 ECJPAKE_Handle ECJPAKE_open(uint_least8_t index, ECJPAKE_Params *params) {
-    SwiP_Params                 swiParams;
     ECJPAKE_Handle                  handle;
     ECJPAKECC26X2_Object           *object;
-    ECJPAKECC26X2_HWAttrs const    *hwAttrs;
-    uint_fast8_t                key;
+    uint_fast8_t                    key;
 
     handle = (ECJPAKE_Handle)&(ECJPAKE_config[index]);
     object = handle->object;
-    hwAttrs = handle->hwAttrs;
 
     /* If params are NULL, use defaults */
     if (params == NULL) {
@@ -1080,21 +1083,11 @@ ECJPAKE_Handle ECJPAKE_open(uint_least8_t index, ECJPAKE_Params *params) {
 
     HwiP_restore(key);
 
-
-
     DebugP_assert((params->returnBehavior == ECJPAKE_RETURN_BEHAVIOR_CALLBACK) ? params->callbackFxn : true);
 
     object->returnBehavior = params->returnBehavior;
     object->callbackFxn = params->returnBehavior == ECJPAKE_RETURN_BEHAVIOR_CALLBACK ? params->callbackFxn : ECJPAKECC26X2_internalCallbackFxn;
     object->semaphoreTimeout = params->timeout;
-
-    /* Create Swi object for this ECJPAKE peripheral */
-    SwiP_Params_init(&swiParams);
-    swiParams.arg0 = (uintptr_t)handle;
-    swiParams.priority = hwAttrs->swiPriority;
-    SwiP_construct(&(object->callbackSwi), ECJPAKECC26X2_swiFxn, &swiParams);
-
-    PKAResourceCC26XX_constructRTOSObjects();
 
     /* Set power dependency - i.e. power up and enable clock for PKA (PKAResourceCC26XX) module. */
     Power_setDependency(PowerCC26X2_PERIPH_PKA);
@@ -1118,9 +1111,10 @@ int_fast16_t ECJPAKE_roundOneGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_Operati
      * all of them somehow.
      */
     object->fsmState                        = ECJPAKECC26X2_FSM_ROUND_ONE_VALIDATE_MYPRIVATEKEY1;
-    object->returnValue                     = ECJPAKE_STATUS_ERROR;
+    object->operationStatus                 = ECJPAKE_STATUS_ERROR;
     object->operation.generateRoundOneKeys  = operation;
     object->operationType                   = ECJPAKE_OPERATION_TYPE_ROUND_ONE_GENERATE_KEYS;
+    object->operationCanceled               = false;
     scratchBufferSize                       = ECJPAKECC26X2_SCRATCH_BUFFER_SIZE;
 
 
@@ -1135,8 +1129,10 @@ int_fast16_t ECJPAKE_roundOneGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_Operati
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Run the FSM by triggering the interrupt. It is level triggered
+     * and the complement of the RUN bit.
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECJPAKECC26X2_waitForResult(handle);
 }
@@ -1157,9 +1153,10 @@ int_fast16_t ECJPAKE_generateZKP(ECJPAKE_Handle handle, ECJPAKE_OperationGenerat
      * all of them somehow.
      */
     object->fsmState                        = ECJPAKECC26X2_FSM_GENERATE_ZKP_PRIVATEKEY_X_HASH;
-    object->returnValue                     = ECJPAKE_STATUS_ERROR;
+    object->operationStatus                 = ECJPAKE_STATUS_ERROR;
     object->operation.generateZKP           = operation;
     object->operationType                   = ECJPAKE_OPERATION_TYPE_GENERATE_ZKP;
+    object->operationCanceled               = false;
     scratchBufferSize                       = ECJPAKECC26X2_SCRATCH_BUFFER_SIZE;
 
     /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
@@ -1173,8 +1170,10 @@ int_fast16_t ECJPAKE_generateZKP(ECJPAKE_Handle handle, ECJPAKE_OperationGenerat
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Run the FSM by triggering the interrupt. It is level triggered
+     * and the complement of the RUN bit.
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECJPAKECC26X2_waitForResult(handle);
 }
@@ -1195,9 +1194,10 @@ int_fast16_t ECJPAKE_verifyZKP(ECJPAKE_Handle handle, ECJPAKE_OperationVerifyZKP
      * all of them somehow.
      */
     object->fsmState                        = ECJPAKECC26X2_FSM_VERIFY_ZKP_VALIDATE_PUBLIC_KEY;
-    object->returnValue                     = ECJPAKE_STATUS_ERROR;
+    object->operationStatus                 = ECJPAKE_STATUS_ERROR;
     object->operation.verifyZKP             = operation;
     object->operationType                   = ECJPAKE_OPERATION_TYPE_VERIFY_ZKP;
+    object->operationCanceled               = false;
     scratchBufferSize                       = ECJPAKECC26X2_SCRATCH_BUFFER_SIZE;
 
     /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
@@ -1211,8 +1211,10 @@ int_fast16_t ECJPAKE_verifyZKP(ECJPAKE_Handle handle, ECJPAKE_OperationVerifyZKP
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Run the FSM by triggering the interrupt. It is level triggered
+     * and the complement of the RUN bit.
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECJPAKECC26X2_waitForResult(handle);
 }
@@ -1233,9 +1235,10 @@ int_fast16_t ECJPAKE_roundTwoGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_Operati
      * all of them somehow.
      */
     object->fsmState                        = ECJPAKECC26X2_FSM_ROUND_TWO_MULT_MYPRIVATEKEY2_BY_PRESHAREDSECRET;
-    object->returnValue                     = ECJPAKE_STATUS_ERROR;
+    object->operationStatus                 = ECJPAKE_STATUS_ERROR;
     object->operation.generateRoundTwoKeys  = operation;
     object->operationType                   = ECJPAKE_OPERATION_TYPE_ROUND_TWO_GENERATE_KEYS;
+    object->operationCanceled               = false;
     scratchBufferSize                       = ECJPAKECC26X2_SCRATCH_BUFFER_SIZE;
 
 
@@ -1250,8 +1253,10 @@ int_fast16_t ECJPAKE_roundTwoGenerateKeys(ECJPAKE_Handle handle, ECJPAKE_Operati
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Run the FSM by triggering the interrupt. It is level triggered
+     * and the complement of the RUN bit.
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECJPAKECC26X2_waitForResult(handle);
 }
@@ -1272,9 +1277,10 @@ int_fast16_t ECJPAKE_computeSharedSecret(ECJPAKE_Handle handle, ECJPAKE_Operatio
      * all of them somehow.
      */
     object->fsmState                        = ECJPAKECC26X2_FSM_GENERATE_SHARED_SECRET_MULT_THEIRPUBLICKEY2_BY_MYCOMBINEDPRIVATEKEY;
-    object->returnValue                     = ECJPAKE_STATUS_ERROR;
+    object->operationStatus                 = ECJPAKE_STATUS_ERROR;
     object->operation.computeSharedSecret   = operation;
     object->operationType                   = ECJPAKE_OPERATION_TYPE_COMPUTE_SHARED_SECRET;
+    object->operationCanceled               = false;
     scratchBufferSize                       = ECJPAKECC26X2_SCRATCH_BUFFER_SIZE;
 
 
@@ -1289,8 +1295,30 @@ int_fast16_t ECJPAKE_computeSharedSecret(ECJPAKE_Handle handle, ECJPAKE_Operatio
 
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* Start running FSM to generate PMSN */
-    SwiP_post(&(object->callbackSwi));
+    /* Run the FSM by triggering the interrupt. It is level triggered
+     * and the complement of the RUN bit.
+     */
+    IntEnable(INT_PKA_IRQ);
 
     return ECJPAKECC26X2_waitForResult(handle);
+}
+
+/*
+ *  ======== ECJPAKE_cancelOperation ========
+ */
+int_fast16_t ECJPAKE_cancelOperation(ECJPAKE_Handle handle) {
+    ECJPAKECC26X2_Object *object = handle->object;
+
+    if(!object->operationInProgress){
+        return ECJPAKE_STATUS_ERROR;
+    }
+
+    object->operationCanceled = true;
+
+    /* Post hwi as if operation finished for cleanup */
+    IntEnable(INT_PKA_IRQ);
+    HwiP_post(INT_PKA_IRQ);
+
+
+    return ECJPAKE_STATUS_SUCCESS;
 }

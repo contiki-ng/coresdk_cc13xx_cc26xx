@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       setup_rom.h
-*  Revised:        2017-09-04 19:00:53 +0200 (Mon, 04 Sep 2017)
-*  Revision:       49686
+*  Revised:        2018-10-24 11:23:04 +0200 (Wed, 24 Oct 2018)
+*  Revision:       52993
 *
 *  Description:    Prototypes and defines for the setup API.
 *
@@ -101,9 +101,19 @@ extern "C"
 
 //*****************************************************************************
 //
-//! \brief First part of configuration required when waking up from shutdown.
+//! \brief First part of configuration required after cold reset and when waking up from shutdown.
 //!
-//! \param ccfg_ModeConfReg
+//! Configures the following based on settings in CCFG (Customer Configuration area:
+//! - Boost mode for CC13xx devices
+//! - Minimal VDDR voltage threshold used during sleep mode
+//! - DCDC functionality:
+//!   - Selects if DCDC or GLDO regulator will be used for VDDR in active mode
+//!   - Selects if DCDC or GLDO regulator will be used for VDDR in sleep mode
+//!
+//! In addition the battery monitor low limit for internal regulator mode is set
+//! to a hard coded value.
+//!
+//! \param ccfg_ModeConfReg is the value of the CCFG_O_MODE_CONF_1 register
 //!
 //! \return None
 //
@@ -112,10 +122,14 @@ extern void SetupAfterColdResetWakeupFromShutDownCfg1( uint32_t ccfg_ModeConfReg
 
 //*****************************************************************************
 //
-//! \brief Second part of configuration required when waking up from shutdown.
+//! \brief Second part of configuration required after cold reset and when waking up from shutdown.
 //!
-//! \param ui32Fcfg1Revision
-//! \param ccfg_ModeConfReg
+//! Configures and trims functionalites required for use of XOSC_HF.
+//! The configurations and trimmings are based on settings in FCFG1 (Factory
+//! Configuration area) and partly on \c ccfg_ModeConfReg.
+//!
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
+//! \param ccfg_ModeConfReg is the value of the CCFG_O_MODE_CONF_1 register
 //!
 //! \return None
 //
@@ -124,9 +138,18 @@ extern void SetupAfterColdResetWakeupFromShutDownCfg2( uint32_t ui32Fcfg1Revisio
 
 //*****************************************************************************
 //
-//! \brief Third part of configuration required when waking up from shutdown.
+//! \brief Third part of configuration required after cold reset and when waking up from shutdown.
 //!
-//! \param ccfg_ModeConfReg
+//! Configures the following:
+//! - XOSC source selection based on \c ccfg_ModeConfReg. If HPOSC is selected on a
+//!   HPOSC device the oscillator is configured based on settings in FCFG1 (Factory
+//!   Configuration area).
+//! - Clock loss detection is disabled. Will be re-enabled by TIRTOS power driver.
+//! - Duration of the XOSC_HF fast startup mode based on FCFG1 setting.
+//! - SCLK_LF based on \c ccfg_ModeConfReg.
+//! - Output voltage of ADC fixed reference based on FCFG1 setting.
+//!
+//! \param ccfg_ModeConfReg is the value of the CCFG_O_MODE_CONF_1 register
 //!
 //! \return None
 //
@@ -137,7 +160,7 @@ extern void SetupAfterColdResetWakeupFromShutDownCfg3( uint32_t ccfg_ModeConfReg
 //
 //! \brief Returns the trim value from FCFG1 to be used as ADC_SH_MODE_EN setting.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns the trim value from FCFG1.
 //
@@ -148,7 +171,7 @@ extern uint32_t SetupGetTrimForAdcShModeEn( uint32_t ui32Fcfg1Revision );
 //
 //! \brief Returns the trim value from FCFG1 to be used as ADC_SH_VBUF_EN setting.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns the trim value from FCFG1.
 //
@@ -159,7 +182,7 @@ extern uint32_t SetupGetTrimForAdcShVbufEn( uint32_t ui32Fcfg1Revision );
 //
 //! \brief Returns the trim value to be used for the AMPCOMP_CTRL register in OSC_DIG.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns the trim value.
 //
@@ -188,7 +211,7 @@ extern uint32_t SetupGetTrimForAmpcompTh2( void );
 //
 //! \brief Returns the trim value to be used for the ANABYPASS_VALUE1 register in OSC_DIG.
 //!
-//! \param ccfg_ModeConfReg
+//! \param ccfg_ModeConfReg is the value of the CCFG_O_MODE_CONF_1 register
 //!
 //! \return Returns the trim value.
 //
@@ -199,7 +222,7 @@ extern uint32_t SetupGetTrimForAnabypassValue1( uint32_t ccfg_ModeConfReg );
 //
 //! \brief Returns the trim value from FCFG1 to be used as DBLR_LOOP_FILTER_RESET_VOLTAGE setting.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns the trim value from FCFG1.
 //
@@ -210,7 +233,7 @@ extern uint32_t SetupGetTrimForDblrLoopFilterResetVoltage( uint32_t ui32Fcfg1Rev
 //
 //! \brief Returns the trim value to be used for the RADCEXTCFG register in OSC_DIG.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns the trim value.
 //
@@ -221,7 +244,7 @@ extern uint32_t SetupGetTrimForRadcExtCfg( uint32_t ui32Fcfg1Revision );
 //
 //! \brief Returns the FCFG1 OSC_CONF_ATESTLF_RCOSCLF_IBIAS_TRIM.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns the trim value from FCFG1.
 //
@@ -242,7 +265,7 @@ extern uint32_t SetupGetTrimForRcOscLfRtuneCtuneTrim( void );
 //
 //! \brief Returns the trim value to be used for the XOSCHFCTL register in OSC_DIG.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns the trim value.
 //
@@ -273,7 +296,7 @@ extern uint32_t SetupGetTrimForXoscHfIbiastherm( void );
 //! \brief Returns XOSCLF_REGULATOR_TRIM and XOSCLF_CMIRRWR_RATIO as one packet
 //! spanning bits [5:0] in the returned value.
 //!
-//! \param ui32Fcfg1Revision
+//! \param ui32Fcfg1Revision is the value of the FCFG1_O_FCFG1_REVISION register
 //!
 //! \return Returns XOSCLF_REGULATOR_TRIM and XOSCLF_CMIRRWR_RATIO as one packet.
 //

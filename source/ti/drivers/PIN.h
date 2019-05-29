@@ -946,7 +946,8 @@ extern PIN_Status PIN_registerIntCb(PIN_Handle handle, PIN_IntCb callbackFxn);
 /** @brief Returns pin configuration
  *
  *  @param pinId    Pin ID
- *  @return  Current pin configuration as a device-independent #PIN_Config value
+ *  @return  Current pin configuration as a device-independent #PIN_Config
+ *           value
  *  @note    The pin ID is embedded in return value.
  *  @note    There is usually a device-specific version of this function that
  *           returns device-specific options
@@ -999,8 +1000,8 @@ extern PIN_Status PIN_setConfig(PIN_Handle handle, PIN_Config updateMask, PIN_Co
  *  @param handle  Handle provided by previous call to PIN_open()
  *  @return A bitmask indicating which bit positions in an I/O port the
  *          allocated I/O pins lie on, or zero if I/O port operations are not
- *          supported or the allocated pins span multiple I/O ports. The bitmask
- *          maps lowest pin index to the rightmost mask bit
+ *          supported or the allocated pins span multiple I/O ports. The
+ *          bitmask maps lowest pin index to the rightmost mask bit
  */
 extern uint32_t PIN_getPortMask(PIN_Handle handle);
 

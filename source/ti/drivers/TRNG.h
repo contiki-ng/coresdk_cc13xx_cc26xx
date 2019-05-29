@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,20 +29,21 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/** ============================================================================
+/*!****************************************************************************
  *  @file       TRNG.h
  *
  *  @brief      TRNG driver header
  *
  *  @warning    This is a beta API. It may change in future releases.
  *
+ *  @anchor ti_drivers_TRNG_Overview
  *  # Overview #
  *  The True Random Number Generator (TRNG) module generates numbers of variable
  *  lengths from a source of entropy. The output is suitable for applications
  *  requiring cryptographically random numbers such as keying material for
  *  private or symmetric keys.
  *
- *
+ *  @anchor ti_drivers_TRNG_Usage
  *  # Usage #
  *
  *  ## Before starting a TRNG operation #
@@ -68,85 +69,46 @@
  *  An example use-case would be generating a symmetric key for AES encryption
  *  and / or authentication.
  *
- *  TRNG_generateEntropyLessThan() returns a random number with the restriction
- *  that the random number be less than a specified value. The algorithm used
- *  to ensure negligible biasing of the resultant random number is implementation
- *  dependent.
- *
- *  TRNG_generateEntropyNonZeroLessThan() also returns a random number with
- *  the restriction that the number be less than a specified value. Further,
- *  the number will not be zero either. This call specifically is useful
- *  if you are trying to generate a private key for use with elliptic curve
- *  cryptography. Private keys commonly have the restriction that they be
- *  within [1, n - 1], where n is the order of the curve. This function guarantees
- *  that you will have an unbiased number in that range when it returns.
- *  The algorithm used to ensure negligible biasing of the resultant
- *  random number is implementation dependent.
- *
- *  While TRNG_generateEntropyNonZeroLessThan() is guaranteed to produce
- *  entropy fit for use in ECC operations, it may not be the most sensible choice.
- *  TRNG_generateEntropyNonZeroLessThan() requires overhead both
- *  in code size and in run-time and thus power consumption. The order of
- *  a curve is often a large number very close to the upper bound of numbers
- *  that fit the curve parameter width. This means that, for many curves, it
- *  is improbable that a randomly generated number is an invalid private key.
- *  The ECDH public key generation functions will reject invalid private keys
- *  with an error code. This lets you implement rejection sampling by using
- *  the basic TRNG_generateEntropy() to generate a random number and simply
- *  generating a new one if the ECDH public key generation function rejects
- *  it.
- *
- *  Not all implementations support the more specialized functions as they require
- *  efficient operations on large numbers. Usually, this means the device needs
- *  a large number maths accelerator or public key accelerator.
+ *  To generate an ECC private key, you should use rejection sampling to ensure
+ *  that the keying material is in the interval [1, n - 1]. The ECDH public key
+ *  genreation APIs will reject private keys that are outside of this interval.
+ *  This information may be used to generate keying material until a suitable
+ *  key is generated. For most curves, it is improbable to generate a random number
+ *  outside of this interval because n is a large number close to the maximum
+ *  number that would fit in the k-byte keying material array. An example
+ *  of how to do this is given below.
  *
  *  ## After the TRNG operation completes #
  *
  *  After the TRNG operation completes, the application should either start another operation
  *  or close the driver by calling TRNG_close().
  *
- *  ## TRNG Driver Configuration #
- *
- *  In order to use the TRNG APIs, the application is required
- *  to provide device-specific TRNG configuration in the Board.c file.
- *  The TRNG driver interface defines a configuration data structure:
- *
+ *  @anchor ti_drivers_TRNG_Synopsis
+ *  ## Synopsis
+ *  @anchor ti_drivers_TRNG_Synopsis_Code
  *  @code
- *  typedef struct TRNG_Config_ {
- *      void                   *object;
- *      void          const    *hwAttrs;
- *  } TRNG_Config;
+ *  // Import TRNG Driver definitions
+ *  #include <ti/drivers/TRNG.h>
+ *  #include <ti/drivers/cryptoutils/cryptokey/CryptoKeyPlaintext.h>
+ *
+ *  // Define name for TRNG channel index
+ *  #define TRNG_INSTANCE 0
+ *
+ *  #define KEY_LENGTH_BYTES 16
+ *
+ *  TRNG_init();
+ *
+ *  handle = TRNG_open(TRNG_INSTANCE, NULL);
+ *
+ *  CryptoKeyPlaintext_initBlankKey(&entropyKey, entropyBuffer, KEY_LENGTH_BYTES);
+ *
+ *  result = TRNG_generateEntropy(handle, &entropyKey);
+ *
+ *  TRNG_close(handle);
+ *
  *  @endcode
  *
- *  The application must declare an array of TRNG_Config elements, named
- *  TRNG_config[].  Each element of TRNG_config[] must be populated with
- *  pointers to a device specific TRNG driver implementation's driver object and
- *  hardware attributes.  The hardware attributes define properties such
- *  as the TRNG peripheral's base address.
- *  Each element in TRNG_config[] corresponds to a TRNG instance
- *  and none of the elements should have NULL pointers.
- *  There is no correlation between the index and the
- *  peripheral designation (such as TRNG0 or TRNG1).  For example, it is
- *  possible to use TRNG_config[0] for TRNG1. Multiple drivers and driver
- *  instances may all access the same underlying hardware. This is transparent
- *  to the application. Mutual exclusion is performed automatically by the
- *  drivers as necessary.
- *
- *  Because the TRNG configuration is very device dependent, you will need to
- *  check the doxygen for the device specific TRNG implementation.  There you
- *  will find a description of the TRNG hardware attributes.  Please also
- *  refer to the Board.c file of any of your examples to see the TRNG
- *  configuration.
- *
- *  ## TRNG Parameters
- *
- *  The #TRNG_Params structure is passed to the TRNG_open() call.  If NULL
- *  is passed for the parameters, TRNG_open() uses default parameters.
- *  A #TRNG_Params structure is initialized with default values by passing
- *  it to TRNG_Params_init().
- *  Some of the TRNG parameters are described below.  To see brief descriptions
- *  of all the parameters, see #TRNG_Params.
- *
+ *  @anchor ti_drivers_TRNG_Examples
  *  ## Examples
  *
  *  ### Generate symmetric encryption key #
@@ -182,47 +144,6 @@
  *  TRNG_close(handle);
  *
  *  @endcode
- *
- *
- *  ### Generate ECC private key #
- *  @code
- *
- *  #include <ti/drivers/TRNG.h>
- *  #include <ti/drivers/cryptoutils/cryptokey/CryptoKeyPlaintext.h>
- *  #include <ti/drivers/cryptoutils/ecc/ECCParams.h>
- *
- *  // The NIST-P256 curve has 256-bit curve parameters and thus 32-byte private
- *  // keys.
- *  #define PRIVATE_KEY_LENGTH_BYTES 32
- *
- *  TRNG_Handle handle;
- *  int_fast16_t result;
- *
- *  CryptoKey entropyKey;
- *  uint8_t entropyBuffer[PRIVATE_KEY_LENGTH_BYTES];
- *
- *  handle = TRNG_open(0, NULL);
- *
- *  if (!handle) {
- *      // Handle error
- *      while(1);
- *  }
- *
- *  CryptoKeyPlaintext_initBlankKey(&entropyKey, entropyBuffer, ECCParams_NISTP256.length);
- *
- *  result = TRNG_generateEntropyNonZeroLessThan(handle,
- *                                               &entropyKey,
- *                                               ECCParams_NISTP256.order);
- *
- *  if (result != TRNG_STATUS_SUCCESS) {
- *      // Handle error
- *      while(1);
- *  }
- *
- *  TRNG_close(handle);
- *
- *  @endcode
- *
  *
  *  ### Generate ECC private and public key using rejection sampling #
  *  @code
@@ -298,27 +219,8 @@ extern "C" {
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
-/**
- *  @defgroup TRNG_CONTROL TRNG_control command and status codes
- *  These TRNG macros are reservations for TRNG.h
- *  @{
- */
-
 /*!
- * Common TRNG_control command code reservation offset.
- * TRNG driver implementations should offset command codes with TRNG_CMD_RESERVED
- * growing positively
- *
- * Example implementation specific command codes:
- * @code
- * #define TRNGXYZ_CMD_COMMAND0     TRNG_CMD_RESERVED + 0
- * #define TRNGXYZ_CMD_COMMAND1     TRNG_CMD_RESERVED + 1
- * @endcode
- */
-#define TRNG_CMD_RESERVED           (32)
-
-/*!
- * Common TRNG_control status code reservation offset.
+ * Common TRNG status code reservation offset.
  * TRNG driver implementations should offset status codes with
  * TRNG_STATUS_RESERVED growing negatively.
  *
@@ -330,13 +232,6 @@ extern "C" {
  * @endcode
  */
 #define TRNG_STATUS_RESERVED        (-32)
-
-/**
- *  @defgroup TRNG_STATUS Status Codes
- *  TRNG_STATUS_* macros are general status codes returned by TRNG functions
- *  @{
- *  @ingroup TRNG_CONTROL
- */
 
 /*!
  * @brief   Successful status code.
@@ -355,15 +250,6 @@ extern "C" {
 #define TRNG_STATUS_ERROR           (-1)
 
 /*!
- * @brief   An error status code returned by TRNG_control() for undefined
- * command codes.
- *
- * TRNG_control() returns TRNG_STATUS_UNDEFINEDCMD if the control code is not
- * recognized by the driver implementation.
- */
-#define TRNG_STATUS_UNDEFINEDCMD    (-2)
-
-/*!
  * @brief   An error status code returned if the hardware or software resource
  * is currently unavailable.
  *
@@ -371,30 +257,12 @@ extern "C" {
  * many clients can simultaneously perform operations. This status code is returned
  * if the mutual exclusion mechanism signals that an operation cannot currently be performed.
  */
-#define TRNG_STATUS_RESOURCE_UNAVAILABLE (-3)
-
-/** @}*/
-
-/** @}*/
-
-/**
- *  @defgroup TRNG_CMD Command Codes
- *  TRNG_CMD_* macros are general command codes for TRNG_control(). Not all TRNG
- *  driver implementations support these command codes.
- *  @{
- *  @ingroup TRNG_CONTROL
- */
-
-/* Add TRNG_CMD_<commands> here */
-
-/** @}*/
-
-/** @}*/
+#define TRNG_STATUS_RESOURCE_UNAVAILABLE (-2)
 
 /*!
  *  @brief  A handle that is returned from a TRNG_open() call.
  */
-typedef struct TRNG_Config_    *TRNG_Handle;
+typedef struct TRNG_Config  *TRNG_Handle;
 
 /*!
  * @brief   The way in which TRNG function calls return after generating
@@ -417,7 +285,7 @@ typedef struct TRNG_Config_    *TRNG_Handle;
  * |TRNG_RETURN_BEHAVIOR_POLLING  | X     | X     | X     |
  *
  */
-typedef enum TRNG_ReturnBehavior_ {
+typedef enum {
     TRNG_RETURN_BEHAVIOR_CALLBACK = 1,    /*!< The function call will return immediately while the
                                              *   TRNG operation goes on in the background. The registered
                                              *   callback function is called after the operation completes.
@@ -445,7 +313,7 @@ typedef enum TRNG_ReturnBehavior_ {
  *
  *  @sa     TRNG_init()
  */
-typedef struct TRNG_Config_ {
+typedef struct TRNG_Config {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -476,7 +344,7 @@ typedef void (*TRNG_CallbackFxn) (TRNG_Handle handle,
  *
  *  @sa     TRNG_Params_init()
  */
-typedef struct TRNG_Params_ {
+typedef struct {
     TRNG_ReturnBehavior     returnBehavior;             /*!< Blocking, callback, or polling return behavior */
     TRNG_CallbackFxn        callbackFxn;                /*!< Callback function pointer */
     uint32_t                timeout;                    /*!< Timeout before the driver returns an error in
@@ -549,87 +417,6 @@ TRNG_Handle TRNG_open(uint_least8_t index, TRNG_Params *params);
 void TRNG_close(TRNG_Handle handle);
 
 /*!
- *  @brief  Function performs implementation specific features on a given
- *          TRNG_Handle.
- *
- *  Commands for TRNG_control can originate from TRNG.h or from implementation
- *  specific TRNG*.h (_TRNGCC26XX.h_, _TRNGMSP432.h_, etc.. ) files.
- *  While commands from TRNG.h are API portable across driver implementations,
- *  not all implementations may support all these commands.
- *  Conversely, commands from driver implementation specific TRNG*.h files add
- *  unique driver capabilities but are not API portable across all TRNG driver
- *  implementations.
- *
- *  Commands supported by TRNG.h follow a TRNG_CMD_\<cmd\> naming
- *  convention.<br>
- *  Commands supported by TRNG*.h follow a TRNG*_CMD_\<cmd\> naming
- *  convention.<br>
- *  Each control command defines @b arg differently. The types of @b arg are
- *  documented with each command.
- *
- *  See @ref TRNG_CMD "TRNG_control command codes" for command codes.
- *
- *  See @ref TRNG_STATUS "TRNG_control return status codes" for status codes.
- *
- *  @pre    TRNG_open() has to be called first.
- *
- *  @param  handle      A TRNG handle returned from TRNG_open()
- *
- *  @param  cmd         TRNG.h or TRNG*.h commands.
- *
- *  @param  args        An optional R/W (read/write) command argument
- *                      accompanied with cmd
- *
- *  @return Implementation specific return codes. Negative values indicate
- *          unsuccessful operations.
- *
- *  @sa     TRNG_open()
- */
-int_fast16_t TRNG_control(TRNG_Handle handle, uint32_t cmd, void *args);
-
-/*!
- *  @brief  Generate a random number smaller than a number
- *
- *  Generates a random bitstream of the size defined in the \c entropy
- *  CryptoKey in the range 0 <= \c entropy buffer < \c upperBound.
- *  The entropy will be generated and stored according to the storage requirements
- *  defined in the CryptoKey.
- *
- *  \c upperBound must have the same length as defined in \c entropy.
- *
- *  @pre    TRNG_open() has to be called first.
- *
- *  @param  handle A TRNG handle returned from TRNG_open().
- *
- *  @param  entropy A blank, initialized CryptoKey describing the target location
- *                  the entropy shall be stored in.
- *
- *  @param  upperBound The uppper bound of numbers returned, exclusive.
- */
-int_fast16_t TRNG_generateEntropyLessThan(TRNG_Handle handle, CryptoKey *entropy, const uint8_t *upperBound);
-
-/*!
- *  @brief  Generate a random number smaller than a number but greater than 0
- *
- *  Generates a random bitstream of the size defined in the \c entropy
- *  CryptoKey in the range 0 < \c entropy buffer < \c upperBound.
- *  The entropy will be generated and stored according to the storage requirements
- *  defined in the CryptoKey.
- *
- *  \c upperBound must have the same length as defined in \c entropy.
- *
- *  @pre    TRNG_open() has to be called first.
- *
- *  @param  handle A TRNG handle returned from TRNG_open().
- *
- *  @param  entropy A blank, initialized CryptoKey describing the target location
- *                  the entropy shall be stored in.
- *
- *  @param  upperBound The uppper bound of numbers returned, exclusive.
- */
-int_fast16_t TRNG_generateEntropyNonZeroLessThan(TRNG_Handle handle, CryptoKey *entropy, const uint8_t *upperBound);
-
-/*!
  *  @brief  Generate a random number
  *
  *  Generates a random bitstream of the size defined in the \c entropy
@@ -643,6 +430,10 @@ int_fast16_t TRNG_generateEntropyNonZeroLessThan(TRNG_Handle handle, CryptoKey *
  *
  *  @param  entropy A blank, initialized CryptoKey describing the target location
  *                  the entropy shall be stored in.
+ *
+ *  @retval #TRNG_STATUS_SUCCESS               The operation succeeded.
+ *  @retval #TRNG_STATUS_ERROR                 The operation failed.
+ *  @retval #TRNG_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
  */
 int_fast16_t TRNG_generateEntropy(TRNG_Handle handle, CryptoKey *entropy);
 

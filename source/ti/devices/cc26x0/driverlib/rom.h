@@ -1,7 +1,7 @@
 /******************************************************************************
 *  Filename:       rom.h
-*  Revised:        2016-10-06 17:21:09 +0200 (Thu, 06 Oct 2016)
-*  Revision:       47343
+*  Revised:        2018-11-02 13:54:49 +0100 (Fri, 02 Nov 2018)
+*  Revision:       53196
 *
 *  Description:    Prototypes for the ROM utility functions.
 *
@@ -161,8 +161,8 @@ extern void SafeHapiAuxAdiSelect( FPTR_VOID_UINT8_T fPtr, uint8_t ut8Signal );
 #define HapiSelectCompBRef(a)        SafeHapiAuxAdiSelect( P_HARD_API->SelectCompBRef     , a )
 
 // Defines for input parameter to the HapiSelectCompAInput function.
-// The define values can not be changed!
 #define COMPA_IN_NC            0x00
+// Defines used in CC13x0/CC26x0 devices
 #define COMPA_IN_AUXIO7        0x09
 #define COMPA_IN_AUXIO6        0x0A
 #define COMPA_IN_AUXIO5        0x0B
@@ -171,14 +171,23 @@ extern void SafeHapiAuxAdiSelect( FPTR_VOID_UINT8_T fPtr, uint8_t ut8Signal );
 #define COMPA_IN_AUXIO2        0x0E
 #define COMPA_IN_AUXIO1        0x0F
 #define COMPA_IN_AUXIO0        0x10
+// Defines used in CC13x2/CC26x2 devices
+#define COMPA_IN_AUXIO26       COMPA_IN_AUXIO7
+#define COMPA_IN_AUXIO25       COMPA_IN_AUXIO6
+#define COMPA_IN_AUXIO24       COMPA_IN_AUXIO5
+#define COMPA_IN_AUXIO23       COMPA_IN_AUXIO4
+#define COMPA_IN_AUXIO22       COMPA_IN_AUXIO3
+#define COMPA_IN_AUXIO21       COMPA_IN_AUXIO2
+#define COMPA_IN_AUXIO20       COMPA_IN_AUXIO1
+#define COMPA_IN_AUXIO19       COMPA_IN_AUXIO0
 
 // Defines for input parameter to the HapiSelectCompARef function.
-// The define values can not be changed!
 #define COMPA_REF_NC           0x00
 #define COMPA_REF_DCOUPL       0x01
 #define COMPA_REF_VSS          0x02
 #define COMPA_REF_VDDS         0x03
 #define COMPA_REF_ADCVREFP     0x04
+// Defines used in CC13x0/CC26x0 devices
 #define COMPA_REF_AUXIO7       0x09
 #define COMPA_REF_AUXIO6       0x0A
 #define COMPA_REF_AUXIO5       0x0B
@@ -187,13 +196,22 @@ extern void SafeHapiAuxAdiSelect( FPTR_VOID_UINT8_T fPtr, uint8_t ut8Signal );
 #define COMPA_REF_AUXIO2       0x0E
 #define COMPA_REF_AUXIO1       0x0F
 #define COMPA_REF_AUXIO0       0x10
+// Defines used in CC13x2/CC26x2 devices
+#define COMPA_REF_AUXIO26      COMPA_REF_AUXIO7
+#define COMPA_REF_AUXIO25      COMPA_REF_AUXIO6
+#define COMPA_REF_AUXIO24      COMPA_REF_AUXIO5
+#define COMPA_REF_AUXIO23      COMPA_REF_AUXIO4
+#define COMPA_REF_AUXIO22      COMPA_REF_AUXIO3
+#define COMPA_REF_AUXIO21      COMPA_REF_AUXIO2
+#define COMPA_REF_AUXIO20      COMPA_REF_AUXIO1
+#define COMPA_REF_AUXIO19      COMPA_REF_AUXIO0
 
 // Defines for input parameter to the HapiSelectADCCompBInput function.
-// The define values can not be changed!
 #define ADC_COMPB_IN_NC        0x00
 #define ADC_COMPB_IN_DCOUPL    0x03
 #define ADC_COMPB_IN_VSS       0x04
 #define ADC_COMPB_IN_VDDS      0x05
+// Defines used in CC13x0/CC26x0 devices
 #define ADC_COMPB_IN_AUXIO7    0x09
 #define ADC_COMPB_IN_AUXIO6    0x0A
 #define ADC_COMPB_IN_AUXIO5    0x0B
@@ -202,6 +220,15 @@ extern void SafeHapiAuxAdiSelect( FPTR_VOID_UINT8_T fPtr, uint8_t ut8Signal );
 #define ADC_COMPB_IN_AUXIO2    0x0E
 #define ADC_COMPB_IN_AUXIO1    0x0F
 #define ADC_COMPB_IN_AUXIO0    0x10
+// Defines used in CC13x2/CC26x2 devices
+#define ADC_COMPB_IN_AUXIO26   ADC_COMPB_IN_AUXIO7
+#define ADC_COMPB_IN_AUXIO25   ADC_COMPB_IN_AUXIO6
+#define ADC_COMPB_IN_AUXIO24   ADC_COMPB_IN_AUXIO5
+#define ADC_COMPB_IN_AUXIO23   ADC_COMPB_IN_AUXIO4
+#define ADC_COMPB_IN_AUXIO22   ADC_COMPB_IN_AUXIO3
+#define ADC_COMPB_IN_AUXIO21   ADC_COMPB_IN_AUXIO2
+#define ADC_COMPB_IN_AUXIO20   ADC_COMPB_IN_AUXIO1
+#define ADC_COMPB_IN_AUXIO19   ADC_COMPB_IN_AUXIO0
 
 // Defines for input parameter to the HapiSelectCompBRef function.
 // The define values can not be changed!

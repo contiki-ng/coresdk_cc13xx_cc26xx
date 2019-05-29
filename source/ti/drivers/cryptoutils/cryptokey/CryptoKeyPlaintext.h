@@ -65,13 +65,15 @@
 #ifndef ti_drivers_cryptoutils_cyptokey_CryptoKeyPlaintext__include
 #define ti_drivers_cryptoutils_cyptokey_CryptoKeyPlaintext__include
 
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdint.h>
-#include <stdbool.h>
-#include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
 /*!
  *  @brief Initializes a CryptoKey type
