@@ -1,12 +1,10 @@
 /******************************************************************************
 *  Filename:       cpu.h
-*  Revised:        2018-06-04 16:10:13 +0200 (Mon, 04 Jun 2018)
-*  Revision:       52111
 *
 *  Description:    Defines and prototypes for the CPU instruction wrapper
 *                  functions.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2022, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -319,7 +317,6 @@ CPUsev(void)
 }
 #endif
 
-
 //*****************************************************************************
 //
 //! \brief Update the interrupt priority disable level.
@@ -353,7 +350,7 @@ CPUbasepriSet(uint32_t ui32NewBasepri)
     msr     BASEPRI, r0;
     bx      lr
 }
-#elif defined(__TI_COMPILER_VERSION__)
+#elif (defined(__TI_COMPILER_VERSION__) || defined(__clang__))
 __STATIC_INLINE void
 CPUbasepriSet(uint32_t ui32NewBasepri)
 {
