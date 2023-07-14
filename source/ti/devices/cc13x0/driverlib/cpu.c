@@ -1,12 +1,10 @@
 /******************************************************************************
 *  Filename:       cpu.c
-*  Revised:        2018-05-08 10:04:01 +0200 (Tue, 08 May 2018)
-*  Revision:       51972
 *
 *  Description:    Instruction wrappers for special CPU instructions needed by
 *                  the drivers.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2022, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -92,7 +90,7 @@ CPUcpsid(void)
     cpsid   i;
     bx      lr
 }
-#elif defined(__TI_COMPILER_VERSION__)
+#elif (defined(__TI_COMPILER_VERSION__) || defined(__clang__))
 uint32_t
 CPUcpsid(void)
 {
@@ -161,7 +159,7 @@ CPUprimask(void)
     mrs     r0, PRIMASK;
     bx      lr
 }
-#elif defined(__TI_COMPILER_VERSION__)
+#elif (defined(__TI_COMPILER_VERSION__) || defined(__clang__))
 uint32_t
 CPUprimask(void)
 {
@@ -230,7 +228,7 @@ CPUcpsie(void)
     cpsie   i;
     bx      lr
 }
-#elif defined(__TI_COMPILER_VERSION__)
+#elif (defined(__TI_COMPILER_VERSION__) || defined(__clang__))
 uint32_t
 CPUcpsie(void)
 {
@@ -299,7 +297,7 @@ CPUbasepriGet(void)
     mrs     r0, BASEPRI;
     bx      lr
 }
-#elif defined(__TI_COMPILER_VERSION__)
+#elif (defined(__TI_COMPILER_VERSION__) || defined(__clang__))
 uint32_t
 CPUbasepriGet(void)
 {
@@ -333,6 +331,7 @@ CPUbasepriGet(void)
     return(ui32Ret);
 }
 #endif
+
 //*****************************************************************************
 //
 // Provide a small delay
@@ -380,6 +379,16 @@ __asm("    .sect \".text:NOROM_CPUdelay\"\n"
       "    subs r0, #1\n"
       "    bne.n NOROM_CPUdelay\n"
       "    bx lr\n");
+#elif defined(__clang__)
+void
+CPUdelay(uint32_t ui32Count)
+{
+    // Loop the specified number of times
+    __asm("CPUdel:\n"
+          "    subs    r0, #1\n"
+          "    bne.n   CPUdel\n"
+          "    bx      lr");
+}
 #else
 // GCC
 void __attribute__((naked))
