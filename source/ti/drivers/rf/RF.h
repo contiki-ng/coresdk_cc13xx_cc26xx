@@ -1030,6 +1030,10 @@ typedef struct {
  *
  * \sa #RF_TxPowerTable_findPowerLevel(), #RF_TxPowerTable_findPowerLevel()
  */
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunaligned-access"
+#endif /* __clang */
 typedef struct
 {
     int8_t power;                 ///< Human readable power value representing
@@ -1037,7 +1041,9 @@ typedef struct
 
     RF_TxPowerTable_Value value;  ///< PA hardware configuration for that power level.
 } __attribute__((packed)) RF_TxPowerTable_Entry;
-
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif /*__clang__ */
 
 /**
  * \brief Selects a power amplifier path in a TX power value.
