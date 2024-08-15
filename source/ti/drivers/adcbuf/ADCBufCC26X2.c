@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -73,13 +73,21 @@
  */
 void ADCBufCC26X2_init(ADCBuf_Handle handle);
 ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle, const ADCBuf_Params *params);
-int_fast16_t ADCBufCC26X2_convert(ADCBuf_Handle handle, ADCBuf_Conversion conversions[],  uint_fast8_t channelCount);
+int_fast16_t ADCBufCC26X2_convert(ADCBuf_Handle handle,
+                                  ADCBuf_Conversion conversions[],
+                                  uint_fast8_t channelCount);
 int_fast16_t ADCBufCC26X2_convertCancel(ADCBuf_Handle handle);
 void ADCBufCC26X2_close(ADCBuf_Handle handle);
 uint_fast8_t ADCBufCC26X2_getResolution(ADCBuf_Handle handle);
-int_fast16_t ADCBufCC26X2_adjustRawValues(ADCBuf_Handle handle, void *sampleBuffer, uint_fast16_t sampleCount, uint32_t adcChannel);
-int_fast16_t ADCBufCC26X2_convertAdjustedToMicroVolts(ADCBuf_Handle handle, uint32_t  adcChannel, void *adjustedSampleBuffer, uint32_t outputMicroVoltBuffer[], uint_fast16_t sampleCount);
-int_fast16_t ADCBufCC26X2_control(ADCBuf_Handle handle, uint_fast16_t cmd, void *arg);
+int_fast16_t ADCBufCC26X2_adjustRawValues(ADCBuf_Handle handle,
+                                          void *sampleBuffer,
+                                          uint_fast16_t sampleCount,
+                                          uint32_t adcChannel);
+int_fast16_t ADCBufCC26X2_convertAdjustedToMicroVolts(
+        ADCBuf_Handle handle, uint32_t adcChannel, void *adjustedSampleBuffer,
+        uint32_t outputMicroVoltBuffer[], uint_fast16_t sampleCount);
+int_fast16_t ADCBufCC26X2_control(ADCBuf_Handle handle, uint_fast16_t cmd,
+                                  void *arg);
 
 /*
  * =============================================================================
@@ -88,13 +96,20 @@ int_fast16_t ADCBufCC26X2_control(ADCBuf_Handle handle, uint_fast16_t cmd, void 
  */
 static bool ADCBufCC26X2_acquireADCSemaphore(ADCBuf_Handle handle);
 static bool ADCBufCC26X2_releaseADCSemaphore(ADCBuf_Handle handle);
-static void ADCBufCC26X2_configDMA(ADCBuf_Handle handle, ADCBuf_Conversion *conversion);
+static void ADCBufCC26X2_configDMA(ADCBuf_Handle handle,
+                                   ADCBuf_Conversion *conversion);
 static void ADCBufCC26X2_hwiFxn (uintptr_t arg);
 static void ADCBufCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1);
-static void ADCBufCC26X2_conversionCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *completedADCBuffer, uint32_t completedChannel);
+static void ADCBufCC26X2_conversionCallback(ADCBuf_Handle handle,
+                                            ADCBuf_Conversion *conversion,
+                                            void *completedADCBuffer,
+                                            uint32_t completedChannel,
+                                            int_fast16_t status);
 static uint32_t ADCBufCC26X2_freqToCounts(uint32_t frequency);
 static void ADCBufCC26X2_cleanADC(ADCBuf_Handle handle);
-static void ADCBufCC26X2_loadDMAControlTableEntry(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, bool primaryEntry);
+static void ADCBufCC26X2_loadDMAControlTableEntry(ADCBuf_Handle handle,
+                                                  ADCBuf_Conversion *conversion,
+                                                  bool primaryEntry);
 
 /*
  * =============================================================================
@@ -117,12 +132,20 @@ const ADCBuf_FxnTable ADCBufCC26X2_fxnTable = {
     ADCBufCC26X2_convertCancel,
     /*! Function to get the resolution in bits of the ADC */
     ADCBufCC26X2_getResolution,
-    /*! Function to adjust raw ADC output values to values comparable between devices of the same type */
+    /*! Function to adjust raw ADC output values to values comparable between
+     * devices of the same type */
     ADCBufCC26X2_adjustRawValues,
     /*! Function to convert adjusted ADC values to microvolts */
     ADCBufCC26X2_convertAdjustedToMicroVolts
 };
 
+/* Default ADCBuf parameters structure */
+const ADCBufCC26X2_ParamsExtension ADCBufCC26X2_defaultParamsExtension = {
+    .samplingDuration       = ADCBufCC26X2_SAMPLING_DURATION_2P7_US,
+    .samplingMode           = ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS,
+    .refSource              = ADCBufCC26X2_FIXED_REFERENCE,
+    .inputScalingEnabled    = true,
+};
 
 /*
  * =============================================================================
@@ -131,8 +154,10 @@ const ADCBuf_FxnTable ADCBufCC26X2_fxnTable = {
  */
 
 /* Allocate space for DMA control table entry */
-ALLOCATE_CONTROL_TABLE_ENTRY(dmaADCPriControlTableEntry, (UDMA_CHAN_AUX_ADC + UDMA_PRI_SELECT));
-ALLOCATE_CONTROL_TABLE_ENTRY(dmaADCAltControlTableEntry, (UDMA_CHAN_AUX_ADC + UDMA_ALT_SELECT));
+ALLOCATE_CONTROL_TABLE_ENTRY(dmaADCPriControlTableEntry,
+                             (UDMA_CHAN_AUX_ADC + UDMA_PRI_SELECT));
+ALLOCATE_CONTROL_TABLE_ENTRY(dmaADCAltControlTableEntry,
+                             (UDMA_CHAN_AUX_ADC + UDMA_ALT_SELECT));
 
 /*
  * =============================================================================
@@ -156,7 +181,9 @@ void ADCBufCC26X2_init(ADCBuf_Handle handle) {
 /*
  * ======== ADCBufCC26X2_open ========
  */
-ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle, const ADCBuf_Params *params) {
+ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle,
+                                const ADCBuf_Params *params)
+{
     /* Use union to save on stack allocation */
     union {
         HwiP_Params              hwiParams;
@@ -202,10 +229,14 @@ ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle, const ADCBuf_Params *param
 
     if (params->custom) {
         /* If CC26X2 specific params were specified, use them */
-        object->samplingDuration        = ((ADCBufCC26X2_ParamsExtension *)(params->custom))->samplingDuration;
-        object->refSource               = ((ADCBufCC26X2_ParamsExtension *)(params->custom))->refSource;
-        object->samplingMode            = ((ADCBufCC26X2_ParamsExtension *)(params->custom))->samplingMode;
-        object->inputScalingEnabled     = ((ADCBufCC26X2_ParamsExtension *)(params->custom))->inputScalingEnabled;
+        object->samplingDuration =
+                ((ADCBufCC26X2_ParamsExtension *) (params->custom))->samplingDuration;
+        object->refSource =
+                ((ADCBufCC26X2_ParamsExtension *) (params->custom))->refSource;
+        object->samplingMode =
+                ((ADCBufCC26X2_ParamsExtension *) (params->custom))->samplingMode;
+        object->inputScalingEnabled =
+                ((ADCBufCC26X2_ParamsExtension *) (params->custom))->inputScalingEnabled;
     }
     else {
         /* Initialise CC26X2 specific settings to defaults */
@@ -215,24 +246,37 @@ ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle, const ADCBuf_Params *param
         object->samplingDuration            = ADCBufCC26X2_SAMPLING_DURATION_2P7_US;
     }
 
+    if (hwAttrs->acquireADCSem) {
+        /* Acquire ADC semaphore */
+        if (!ADCBufCC26X2_acquireADCSemaphore(handle)) {
+            /* We were not able to acquire the ADC semaphore */
+            DebugP_log0("ADC: semaphore could not be acquired during open()");
+            object->isOpen = false;
+            return NULL;
+        }
+    }
+
     /* Open timer resource */
     GPTimerCC26XX_Params_init(&paramsUnion.timerParams);
     paramsUnion.timerParams.width           = GPT_CONFIG_16BIT;
     paramsUnion.timerParams.mode            = GPT_MODE_PERIODIC_UP;
     paramsUnion.timerParams.debugStallMode  = GPTimerCC26XX_DEBUG_STALL_OFF;
-    object->timerHandle                     = GPTimerCC26XX_open(hwAttrs->gpTimerUnit, &paramsUnion.timerParams);
+    object->timerHandle = GPTimerCC26XX_open(hwAttrs->gpTimerUnit,
+                                             &paramsUnion.timerParams);
 
     if (object->timerHandle == NULL) {
         /* We did not manage to open the GPTimer we wanted */
+        object->isOpen = false;
         return NULL;
     }
 
     /* Enable capture toggle event on timeout. The ADC will trigger a
        conversion on the rising edge of the event pulse. */
     gptConfig = HWREG(object->timerHandle->hwAttrs->baseAddr + GPT_O_TAMR);
-    HWREG(object->timerHandle->hwAttrs->baseAddr + GPT_O_TAMR) = (gptConfig & 0xFF) | GPT_TAMR_TCACT_TOG_ON_TO;
+    HWREG(object->timerHandle->hwAttrs->baseAddr + GPT_O_TAMR) = (gptConfig
+            & 0xFF) | GPT_TAMR_TCACT_TOG_ON_TO;
 
-    /* Calculate period count for the GPT using double the sample freqency.
+    /* Calculate period count for the GPT using double the sample frequency.
        The GPT need to generate two events each ADC period to create
        the trigger pulse. */
     adcPeriodCounts = ADCBufCC26X2_freqToCounts(params->samplingFrequency * 2);
@@ -242,7 +286,8 @@ ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle, const ADCBuf_Params *param
         /* Continuous trigger mode and blocking return mode is an illegal combination */
         DebugP_assert(!(params->recurrenceMode == ADCBuf_RECURRENCE_MODE_CONTINUOUS));
 
-        /* Create a semaphore to block task execution for the duration of the ADC conversions */
+        /* Create a semaphore to block task execution for the duration of the
+         * ADC conversions */
         SemaphoreP_constructBinary(&(object->conversionComplete), 0);
 
         /* Store internal callback function */
@@ -256,11 +301,31 @@ ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle, const ADCBuf_Params *param
         object->callbackFxn = params->callbackFxn;
     }
 
+    /* Check if the ADC data interface is already enabled - if so, then a
+     * previous configuration was halted without cleanly disabling the ADC */
+    if (HWREG(AUX_ANAIF_BASE + AUX_ANAIF_O_ADCCTL) && AUX_ANAIF_ADCCTL_CMD_EN) {
+        /* Disable the ADC and disable UDMA mode for ADC */
+        AUXADCDisable();
+        HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) =
+                AUX_EVCTL_DMACTL_REQ_MODE_SINGLE
+                        | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY;
+
+        /* Release the ADC semaphore */
+        AUXSMPHRelease(AUX_SMPH_2);
+    }
+
+    /* Clear the event flags to prevent an immediate interrupt from a previous
+     * configuration */
+    HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGSCLR) =
+            (AUX_EVCTL_EVTOMCUFLAGS_ADC_IRQ | AUX_EVCTL_EVTOMCUFLAGS_ADC_DONE);
+    HwiP_clearInterrupt(INT_AUX_ADC_IRQ);
+
     /* Create the Hwi for this ADC peripheral. */
     HwiP_Params_init(&paramsUnion.hwiParams);
     paramsUnion.hwiParams.arg = (uintptr_t) handle;
     paramsUnion.hwiParams.priority = hwAttrs->intPriority;
-    HwiP_construct(&(object->hwi), INT_AUX_ADC_IRQ, ADCBufCC26X2_hwiFxn, &paramsUnion.hwiParams);
+    HwiP_construct(&(object->hwi), INT_AUX_ADC_IRQ, ADCBufCC26X2_hwiFxn,
+                   &paramsUnion.hwiParams);
 
     /* Create the Swi object for this ADC peripheral */
     SwiP_Params_init(&paramsUnion.swiParams);
@@ -276,6 +341,13 @@ ADCBuf_Handle ADCBufCC26X2_open(ADCBuf_Handle handle, const ADCBuf_Params *param
     return handle;
 }
 
+/*
+ *  ======== ADCBufCC26X2_ParamsExtension_init ========
+ */
+void ADCBufCC26X2_ParamsExtension_init(ADCBufCC26X2_ParamsExtension *params)
+{
+    *params = ADCBufCC26X2_defaultParamsExtension;
+}
 
 /*!
  *  @brief  HWI ISR of the ADC triggered when the DMA transaction is complete
@@ -298,17 +370,22 @@ static void ADCBufCC26X2_hwiFxn (uintptr_t arg) {
     if (object->recurrenceMode == ADCBuf_RECURRENCE_MODE_ONE_SHOT) {
         /* Disable the ADC */
         AUXADCDisable();
-        /* Disable ADC DMA if we are only doing one conversion and clear DMA done interrupt. */
-        HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) = AUX_EVCTL_DMACTL_REQ_MODE_SINGLE | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY ;
+        /* Disable ADC DMA if we are only doing one conversion and clear DMA
+         * done interrupt. */
+        HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) =
+                AUX_EVCTL_DMACTL_REQ_MODE_SINGLE
+                        | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY;
     }
     else if (object->recurrenceMode == ADCBuf_RECURRENCE_MODE_CONTINUOUS) {
         /* Reload the finished DMA control table entry */
         if (HWREG(UDMA0_BASE + UDMA_O_SETCHNLPRIALT) & (1 << UDMA_CHAN_AUX_ADC)) {
-            /* We are currently using the alternate entry -> we just finished the primary entry -> reload primary entry */
+            /* We are currently using the alternate entry -> we just finished
+             * the primary entry -> reload primary entry */
             ADCBufCC26X2_loadDMAControlTableEntry((ADCBuf_Handle)arg, conversion, true);
         }
         else {
-            /* We are currently using the primary entry -> we just finished the alternate entry -> reload the alternate entry */
+            /* We are currently using the primary entry -> we just finished the
+             * alternate entry -> reload the alternate entry */
             ADCBufCC26X2_loadDMAControlTableEntry((ADCBuf_Handle)arg, conversion, false);
             object->activeSampleBuffer = conversion->sampleBufferTwo;
         }
@@ -317,9 +394,20 @@ static void ADCBufCC26X2_hwiFxn (uintptr_t arg) {
     UDMACC26XX_clearInterrupt(object->udmaHandle, (1 << UDMA_CHAN_AUX_ADC));
 
     /* Get the status of the ADC_IRQ line and ADC_DONE */
-    intStatus = HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGS) & (AUX_EVCTL_EVTOMCUFLAGS_ADC_IRQ | AUX_EVCTL_EVTOMCUFLAGS_ADC_DONE);
+    intStatus =
+            HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGS)
+                    & (AUX_EVCTL_EVTOMCUFLAGS_ADC_IRQ
+                            | AUX_EVCTL_EVTOMCUFLAGS_ADC_DONE);
     /* Clear the ADC_IRQ flag if it triggered the ISR */
     HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGSCLR) = intStatus;
+
+    /* Get the status of the ADC FIFO */
+    intStatus = AUXADCGetFifoStatus();
+
+    /* Check for overflow/underflow events */
+    if (intStatus & (AUXADC_FIFO_OVERFLOW_M | AUXADC_FIFO_UNDERFLOW_M)) {
+        AUXADCFlushFifo();
+    }
 
     /* Post SWI to handle remaining clean up and invocation of callback */
     SwiP_post(&(object->swi));
@@ -364,20 +452,26 @@ static void ADCBufCC26X2_swiFxn (uintptr_t arg0, uintptr_t arg1) {
     HwiP_restore(key);
 
     /* Perform callback */
-    object->callbackFxn((ADCBuf_Handle)arg0, conversion, sampleBuffer, channel);
+    object->callbackFxn((ADCBuf_Handle)arg0, conversion, sampleBuffer, channel, ADCBuf_STATUS_SUCCESS);
 
     DebugP_log0("ADC: swi interrupt context end");
 }
 
 /*!
- *  @brief  CC26X2 internal callback function that posts the semaphore in blocking mode
+ *  @brief  CC26X2 internal callback function that posts the semaphore in
+ *  blocking mode
  *
  *  @param  handle      An ADCBufCC26X2_Handle
  *
  *  @param  conversion  A pointer to the current ADCBuf_Conversion
  *
  */
-static void ADCBufCC26X2_conversionCallback(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, void *completedADCBuffer, uint32_t completedChannel) {
+static void ADCBufCC26X2_conversionCallback(ADCBuf_Handle handle,
+                                            ADCBuf_Conversion *conversion,
+                                            void *completedADCBuffer,
+                                            uint32_t completedChannel,
+                                            int_fast16_t status)
+{
     ADCBufCC26X2_Object        *object;
 
     DebugP_log0("ADC DMA: posting conversionComplete semaphore");
@@ -392,7 +486,10 @@ static void ADCBufCC26X2_conversionCallback(ADCBuf_Handle handle, ADCBuf_Convers
 /*
  * ======== ADCBufCC26X2_convert ========
  */
-int_fast16_t ADCBufCC26X2_convert(ADCBuf_Handle handle, ADCBuf_Conversion conversions[],  uint_fast8_t channelCount) {
+int_fast16_t ADCBufCC26X2_convert(ADCBuf_Handle handle,
+                                  ADCBuf_Conversion conversions[],
+                                  uint_fast8_t channelCount)
+{
     uint32_t                        key;
     ADCBufCC26X2_Object             *object;
     ADCBufCC26X2_HWAttrs const      *hwAttrs;
@@ -408,7 +505,8 @@ int_fast16_t ADCBufCC26X2_convert(ADCBuf_Handle handle, ADCBuf_Conversion conver
     DebugP_assert(channelCount == 1);
     DebugP_assert((conversions->samplesRequestedCount <= UDMA_XFER_SIZE_MAX));
     DebugP_assert(conversions->sampleBuffer);
-    DebugP_assert(!(object->recurrenceMode == (ADCBuf_RECURRENCE_MODE_CONTINUOUS && !(conversions->sampleBufferTwo))));
+    DebugP_assert(!(object->recurrenceMode == (ADCBuf_RECURRENCE_MODE_CONTINUOUS
+            && !(conversions->sampleBufferTwo))));
 
     /* Disable interrupts */
     key = HwiP_disable();
@@ -475,7 +573,8 @@ int_fast16_t ADCBufCC26X2_convert(ADCBuf_Handle handle, ADCBuf_Conversion conver
     /* Arm the ADC in preparation for incoming conversion triggers */
     if (object->samplingMode == ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS) {
         /* ADCBufCC26X2_SYNCHRONOUS sampling mode */
-        AUXADCEnableSync(object->refSource, object->samplingDuration, AUXADC_TRIGGER_GPT0A_CMP);
+        AUXADCEnableSync(object->refSource, object->samplingDuration,
+                         AUXADC_TRIGGER_GPT0A_CMP);
     }
     else {
         /* ADCBufCC26X2_ASYNCHRONOUS sampling mode */
@@ -497,7 +596,7 @@ int_fast16_t ADCBufCC26X2_convert(ADCBuf_Handle handle, ADCBuf_Conversion conver
             /* Cancel the transfer if we experience a timeout */
             ADCBufCC26X2_convertCancel(handle);
             /*
-             * ADCBufCC26X2_convertCancel peforms a callback which posts a
+             * ADCBufCC26X2_convertCancel performs a callback which posts a
              * conversionComplete semaphore. This call consumes this extra post.
              */
             SemaphoreP_pend(&(object->conversionComplete), SemaphoreP_NO_WAIT);
@@ -538,9 +637,12 @@ int_fast16_t ADCBufCC26X2_convertCancel(ADCBuf_Handle handle) {
      */
     conversion = object->currentConversion;
 
-    /* Perform callback if we are in one-shot mode. In continuous mode, ADCBuf_convertCancel will probably be called from the callback functon itself. No need to call it again. */
+    /* Perform callback if we are in one-shot mode. In continuous mode,
+     * ADCBuf_convertCancel will probably be called from the callback function
+     * itself. No need to call it again. */
     if (object->recurrenceMode == ADCBuf_RECURRENCE_MODE_ONE_SHOT) {
-        object->callbackFxn(handle, conversion, conversion->sampleBuffer, object->currentChannel);
+        object->callbackFxn(handle, conversion, conversion->sampleBuffer,
+                            object->currentChannel, ADCBuf_STATUS_SUCCESS);
     }
 
     return ADCBuf_STATUS_SUCCESS;
@@ -581,6 +683,10 @@ void ADCBufCC26X2_close(ADCBuf_Handle handle) {
         SemaphoreP_destruct(&(object->conversionComplete));
     }
 
+    if (object->adcSemaphoreInPossession) {
+        ADCBufCC26X2_releaseADCSemaphore(handle);
+    }
+
     /* Mark the module as available */
     object->isOpen = false;
 
@@ -597,7 +703,11 @@ uint_fast8_t ADCBufCC26X2_getResolution(ADCBuf_Handle handle) {
 /*
  * ======== ADCBufCC26X2_adjustRawValues ========
  */
-int_fast16_t ADCBufCC26X2_adjustRawValues(ADCBuf_Handle handle, void *sampleBuffer, uint_fast16_t sampleCount, uint32_t adcChannel) {
+int_fast16_t ADCBufCC26X2_adjustRawValues(ADCBuf_Handle handle,
+                                          void *sampleBuffer,
+                                          uint_fast16_t sampleCount,
+                                          uint32_t adcChannel)
+{
     ADCBufCC26X2_Object *object;
     uint32_t            gain;
     uint32_t            offset;
@@ -610,7 +720,8 @@ int_fast16_t ADCBufCC26X2_adjustRawValues(ADCBuf_Handle handle, void *sampleBuff
 
     for (i = 0; i < sampleCount; i++) {
         uint16_t tmpRawADCVal = ((uint16_t *)sampleBuffer)[i];
-        ((uint16_t *)sampleBuffer)[i] = AUXADCAdjustValueForGainAndOffset(tmpRawADCVal, gain, offset);
+        ((uint16_t *) sampleBuffer)[i] = AUXADCAdjustValueForGainAndOffset(
+                tmpRawADCVal, gain, offset);
     }
 
     return ADCBuf_STATUS_SUCCESS;
@@ -619,24 +730,32 @@ int_fast16_t ADCBufCC26X2_adjustRawValues(ADCBuf_Handle handle, void *sampleBuff
 /*
  * ======== ADCBufCC26X2_convertAdjustedToMicroVolts ========
  */
-int_fast16_t ADCBufCC26X2_convertAdjustedToMicroVolts(ADCBuf_Handle handle, uint32_t  adcChannel, void *adjustedSampleBuffer, uint32_t outputMicroVoltBuffer[], uint_fast16_t sampleCount) {
+int_fast16_t ADCBufCC26X2_convertAdjustedToMicroVolts(
+        ADCBuf_Handle handle, uint32_t adcChannel, void *adjustedSampleBuffer,
+        uint32_t outputMicroVoltBuffer[], uint_fast16_t sampleCount)
+{
     ADCBufCC26X2_Object *object;
     uint16_t            i;
     uint32_t            voltageRef;
 
     object = handle->object;
 
-    voltageRef = (object->inputScalingEnabled) ? AUXADC_FIXED_REF_VOLTAGE_NORMAL : AUXADC_FIXED_REF_VOLTAGE_UNSCALED;
+    voltageRef =
+            (object->inputScalingEnabled) ?
+                    AUXADC_FIXED_REF_VOLTAGE_NORMAL :
+                    AUXADC_FIXED_REF_VOLTAGE_UNSCALED;
 
     for (i = 0; i < sampleCount; i++) {
-        outputMicroVoltBuffer[i] = AUXADCValueToMicrovolts(voltageRef, ((uint16_t *)adjustedSampleBuffer)[i]);
+        outputMicroVoltBuffer[i] = AUXADCValueToMicrovolts(
+                voltageRef, ((uint16_t *) adjustedSampleBuffer)[i]);
     }
 
     return ADCBuf_STATUS_SUCCESS;
 }
 
 /*!
- *  @brief  Function to configure the DMA to automatically transfer ADC output data into a provided array
+ *  @brief  Function to configure the DMA to automatically transfer ADC output
+ *  data into a provided array
  *
  *  @pre    ADCBufCC26X2_open() has to be called first.
  *
@@ -647,7 +766,9 @@ int_fast16_t ADCBufCC26X2_convertAdjustedToMicroVolts(ADCBuf_Handle handle, uint
  *  @param  conversion A pointer to an ADCBuf_Conversion
  *
  */
-static void ADCBufCC26X2_configDMA(ADCBuf_Handle handle, ADCBuf_Conversion *conversion) {
+static void ADCBufCC26X2_configDMA(ADCBuf_Handle handle,
+                                   ADCBuf_Conversion *conversion)
+{
     ADCBufCC26X2_Object             *object;
 
     /* Get the pointer to the object */
@@ -656,7 +777,8 @@ static void ADCBufCC26X2_configDMA(ADCBuf_Handle handle, ADCBuf_Conversion *conv
     /* Set configure control table entry */
     ADCBufCC26X2_loadDMAControlTableEntry(handle, conversion, true);
 
-    /* If we are operating in continous mode, load the alternate DMA control table data structure */
+    /* If we are operating in continuous mode, load the alternate DMA control
+     * table data structure */
     if (object->recurrenceMode == ADCBuf_RECURRENCE_MODE_CONTINUOUS) {
         ADCBufCC26X2_loadDMAControlTableEntry(handle, conversion, false);
     }
@@ -665,13 +787,16 @@ static void ADCBufCC26X2_configDMA(ADCBuf_Handle handle, ADCBuf_Conversion *conv
     UDMACC26XX_channelEnable(object->udmaHandle, 1 << UDMA_CHAN_AUX_ADC);
 
     /* Configure DMA settings in AUX_EVCTL */
-    HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) = AUX_EVCTL_DMACTL_REQ_MODE_SINGLE | AUX_EVCTL_DMACTL_EN | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY;
+    HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) =
+            AUX_EVCTL_DMACTL_REQ_MODE_SINGLE | AUX_EVCTL_DMACTL_EN
+                    | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY;
 
     DebugP_log0("ADCBuf: DMA transfer enabled");
 }
 
 /*!
- *  @brief  Function to configure the adc DMA control table entry for basic or ping pong mode
+ *  @brief  Function to configure the adc DMA control table entry for basic or
+ *  ping pong mode
  *
  *  @pre    ADCBufCC26X2_open() has to be called first.
  *
@@ -681,10 +806,14 @@ static void ADCBufCC26X2_configDMA(ADCBuf_Handle handle, ADCBuf_Conversion *conv
  *
  *  @param  conversion A pointer to an ADCBuf_Conversion
  *
- *  @param  primaryEntry Is this supposed to modify the primary or the alternate control table entry
+ *  @param  primaryEntry Is this supposed to modify the primary or the alternate
+ *   control table entry
  *
  */
-static void ADCBufCC26X2_loadDMAControlTableEntry(ADCBuf_Handle handle, ADCBuf_Conversion *conversion, bool primaryEntry) {
+static void ADCBufCC26X2_loadDMAControlTableEntry(ADCBuf_Handle handle,
+                                                  ADCBuf_Conversion *conversion,
+                                                  bool primaryEntry)
+{
     ADCBufCC26X2_Object             *object;
     volatile tDMAControlTable       *dmaControlTableEntry;
     uint32_t                        numberOfBytes;
@@ -693,18 +822,27 @@ static void ADCBufCC26X2_loadDMAControlTableEntry(ADCBuf_Handle handle, ADCBuf_C
     object = handle->object;
 
     /* Calculate the number of bytes for the transfer */
-    numberOfBytes = (uint16_t)(conversion->samplesRequestedCount) * ADCBufCC26X2_BYTES_PER_SAMPLE;
+    numberOfBytes = (uint16_t) (conversion->samplesRequestedCount)
+            * ADCBufCC26X2_BYTES_PER_SAMPLE;
 
     /* Set configure control table entry */
-    dmaControlTableEntry = primaryEntry ? &dmaADCPriControlTableEntry : &dmaADCAltControlTableEntry;
-    dmaControlTableEntry->ui32Control = ((object->recurrenceMode == ADCBuf_RECURRENCE_MODE_ONE_SHOT) ? UDMA_MODE_BASIC : UDMA_MODE_PINGPONG) |
+    dmaControlTableEntry =
+            primaryEntry ?
+                    &dmaADCPriControlTableEntry : &dmaADCAltControlTableEntry;
+    dmaControlTableEntry->ui32Control = (
+            (object->recurrenceMode == ADCBuf_RECURRENCE_MODE_ONE_SHOT) ?
+                    UDMA_MODE_BASIC : UDMA_MODE_PINGPONG) |
                                         UDMA_SIZE_16  |
                                         UDMA_SRC_INC_NONE |
                                         UDMA_DST_INC_16 |
                                         UDMA_ARB_1 |
                                         UDMACC26XX_SET_TRANSFER_SIZE((uint16_t)conversion->samplesRequestedCount);
-    dmaControlTableEntry->pvDstEndAddr = (void *)((uint32_t)(primaryEntry ? conversion->sampleBuffer : conversion->sampleBufferTwo) + numberOfBytes - 1);
-    dmaControlTableEntry->pvSrcEndAddr = (void *)(AUX_ANAIF_BASE + AUX_ANAIF_O_ADCFIFO);
+    dmaControlTableEntry->pvDstEndAddr = (void *) ((uint32_t) (
+            primaryEntry ?
+                    conversion->sampleBuffer : conversion->sampleBufferTwo)
+            + numberOfBytes - 1);
+    dmaControlTableEntry->pvSrcEndAddr = (void *) (AUX_ANAIF_BASE
+            + AUX_ANAIF_O_ADCFIFO);
 }
 
 /*!
@@ -742,7 +880,9 @@ static void ADCBufCC26X2_cleanADC(ADCBuf_Handle handle) {
     PIN_close(object->pinHandle);
 
     /* Disable UDMA mode for ADC */
-    HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) = AUX_EVCTL_DMACTL_REQ_MODE_SINGLE | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY ;
+    HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_DMACTL) =
+            AUX_EVCTL_DMACTL_REQ_MODE_SINGLE
+                    | AUX_EVCTL_DMACTL_SEL_FIFO_NOT_EMPTY;
 
     /* Note that the driver is no longer converting */
     object->conversionInProgress = false;
@@ -786,7 +926,8 @@ static bool ADCBufCC26X2_acquireADCSemaphore(ADCBuf_Handle handle) {
 
     /* Check if ADC is closed or a conversion is in progress */
     if (!(object->isOpen) || object->conversionInProgress) {
-        DebugP_log0("ADC: driver must be open and no conversion must be in progress to disable input scaling");
+        DebugP_log0("ADC: driver must be open and no conversion must be in "
+                "progress to disable input scaling");
     }
     /* This is a non-blocking call to acquire the ADC semaphore. */
     else if (AUXSMPHTryAcquire(AUX_SMPH_2)) {
@@ -826,7 +967,8 @@ static bool ADCBufCC26X2_releaseADCSemaphore(ADCBuf_Handle handle) {
 
     /* Check if ADC is closed or a conversion is in progress */
     if (!(object->isOpen) || object->conversionInProgress) {
-        DebugP_log0("ADC: driver must be open and no conversion must be in progress to disable input scaling");
+        DebugP_log0("ADC: driver must be open and no conversion must be in "
+                "progress to disable input scaling");
         semaphoreReleased = false;
     }
     else {
@@ -844,7 +986,9 @@ static bool ADCBufCC26X2_releaseADCSemaphore(ADCBuf_Handle handle) {
 /*
  * ======== ADCBufCC26X2_control ========
  */
-int_fast16_t ADCBufCC26X2_control(ADCBuf_Handle handle, uint_fast16_t cmd, void * arg) {
+int_fast16_t ADCBufCC26X2_control(ADCBuf_Handle handle, uint_fast16_t cmd,
+                                  void * arg)
+{
     ADCBufCC26X2_Object *object = handle->object;
     int status = ADCBuf_STATUS_ERROR;
 

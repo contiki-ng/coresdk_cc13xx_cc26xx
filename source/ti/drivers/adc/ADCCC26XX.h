@@ -62,13 +62,13 @@ extern "C" {
 /*!
  *  @brief  Amount of time the ADC spends sampling the analogue input.
  *
- *  The analogue to digital conversion process consists of two phases in the CC26XX ADC,
- *  the sampling and conversion phases. During the sampling phase, the ADC samples the
- *  analogue input signal. The duration of the sampling phase is configurable.
- *  Larger input loads require longer sample times for the most accurate
- *  results.
+ *  The analogue to digital conversion process consists of two phases in the
+ *  CC26XX ADC, the sampling and conversion phases. During the sampling phase,
+ *  the ADC samples the analogue input signal. The duration of the sampling
+ *  phase is configurable. Larger input loads require longer sample times for
+ *  the most accurate results.
  */
-typedef enum ADCCC26XX_Sampling_Duration {
+typedef enum {
     ADCCC26XX_SAMPLING_DURATION_2P7_US    = AUXADC_SAMPLE_TIME_2P7_US,
     ADCCC26XX_SAMPLING_DURATION_5P3_US    = AUXADC_SAMPLE_TIME_5P3_US,
     ADCCC26XX_SAMPLING_DURATION_10P6_US   = AUXADC_SAMPLE_TIME_10P6_US,
@@ -85,26 +85,38 @@ typedef enum ADCCC26XX_Sampling_Duration {
 } ADCCC26XX_Sampling_Duration;
 
 /*!
- *  @brief  Specifies whether the internal reference of the ADC is sourced from the battery voltage or a fixed internal source.
+ *  @brief  Specifies whether the internal reference of the ADC is sourced from
+ *          the battery voltage or a fixed internal source.
  *
- *  - In practice, using the internal fixed voltage reference sets the upper range of the ADC to a fixed value. That value is 4.3V with
- *  input scaling enabled and ~1.4785V with input scaling disabled. In this mode, the output is a function of the input voltage multiplied
- *  by the resolution in alternatives (not bits) divided by the upper voltage range of the ADC. Output = Input (V) * 2^12 / (ADC range (V))
+ *  - In practice, using the internal fixed voltage reference sets the upper
+ *    range of the ADC to a fixed value. That value is 4.3V with input scaling
+ *    enabled and ~1.4785V with input scaling disabled. In this mode, the output
+ *    is a function of the input voltage multiplied by the resolution in
+ *    alternatives (not bits) divided by the upper voltage range of the ADC.
+ *    Output = Input (V) * 2^12 / (ADC range (V))
  *
- *  - Using VDDS as a reference scales the upper range of the ADC with the battery voltage. As the battery depletes and its voltage drops, so does
- *  the range of the ADC. This is helpful when measuring signals that are generated relative to the battery voltage. In this mode, the output is
- *  a function of the input voltage multiplied by the resolution in alternatives (not bits) divided by VDDS multiplied by a scaling factor derived
- *  from the input scaling. Output = Input (V) * 2^12 / (VDDS (V) * Scaling factor), where the scaling factor is ~1.4785/4.3 for input scaling
- *  disabled and 1 for input scaling enabled.
+ *  - Using VDDS as a reference scales the upper range of the ADC with the
+ *    battery voltage. As the battery depletes and its voltage drops, so does the
+ *    range of the ADC. This is helpful when measuring signals that are generated
+ *    relative to the battery voltage. In this mode, the output is a function of
+ *    the input voltage multiplied by the resolution in alternatives (not bits)
+ *    divided by VDDS multiplied by a scaling factor derived from the input
+ *    scaling. Output = Input (V) * 2^12 / (VDDS (V) * Scaling factor), where the
+ *    scaling factor is ~1.4785/4.3 for input scaling disabled and 1 for input
+ *    scaling enabled.
  *
- *  @note   The actual reference values are slightly different for each device and are higher than the values specified above. This gain is saved in
- *          the FCFG. The function ::ADC_convertToMicroVolts() must be used to derive actual voltage values. Do not attempt to compare raw values
- *          between devices or derive a voltage from them yourself. The results of doing so will only be approximately correct.
+ *  @note   The actual reference values are slightly different for each device
+ *          and are higher than the values specified above. This gain is saved
+ *          in the FCFG. The function ::ADC_convertToMicroVolts() must be used
+ *          to derive actual voltage values. Do not attempt to compare raw
+ *          values between devices or derive a voltage from them yourself. The
+ *          results of doing so will only be approximately correct.
  *
- *  @warning    Even though the upper voltage range of the ADC is 4.3 volts in fixed mode with input scaling enabled, the input should never exceed
- *              VDDS as per the data sheet.
+ *  @warning    Even though the upper voltage range of the ADC is 4.3 volts in
+ *              fixed mode with input scaling enabled, the input should never
+ *              exceed VDDS as per the data sheet.
  */
-typedef enum ADCCC26XX_Reference_Source {
+typedef enum {
     ADCCC26XX_FIXED_REFERENCE       = AUXADC_REF_FIXED,
     ADCCC26XX_VDDS_REFERENCE        = AUXADC_REF_VDDS_REL
 } ADCCC26XX_Reference_Source;
@@ -112,10 +124,10 @@ typedef enum ADCCC26XX_Reference_Source {
 /*!
  *  @brief List of sources the ADC can be configured to trigger off of.
  *
- *  The ADC driver currently only supports the driver manually triggering a conversion.
- *  Support for other trigger sources may be added later.
+ *  The ADC driver currently only supports the driver manually triggering a
+ *  conversion. Support for other trigger sources may be added later.
  */
-typedef enum ADCCC26XX_Trigger_Source {
+typedef enum {
     ADCCC26XX_TRIGGER_MANUAL    = AUXADC_TRIGGER_MANUAL,
 } ADCCC26XX_Trigger_Source;
 
@@ -128,14 +140,23 @@ extern const ADC_FxnTable ADCCC26XX_fxnTable;
  *  driverlib macro definitions.
  *
  */
-typedef struct ADCCC26XX_HWAttrs {
-    uint8_t                             adcDIO;                     /*!< DIO that the ADC is routed to */
-    uint8_t                             adcCompBInput;              /*!< Internal signal routed to comparator B */
-    bool                                returnAdjustedVal;          /*!< Should the raw output be trimmed before returning it */
-    bool                                inputScalingEnabled;        /*!< Is input scaling enabled */
-    ADCCC26XX_Reference_Source          refSource;                  /*!< Reference source for the ADC to use */
-    ADCCC26XX_Sampling_Duration         samplingDuration;           /*!< Time the ADC spends sampling. This is load dependent */
-    ADCCC26XX_Trigger_Source            triggerSource;              /*!< Source that the ADC triggers off of. Currently only supports AUXADC_TRIGGER_MANUAL */
+typedef struct {
+    /*!< DIO that the ADC is routed to */
+    uint8_t                     adcDIO;
+    /*!< Internal signal routed to comparator B */
+    uint8_t                     adcCompBInput;
+    /*!< Should the raw output be trimmed before returning it */
+    bool                        returnAdjustedVal;
+    /*!< Is input scaling enabled */
+    bool                        inputScalingEnabled;
+    /*!< Reference voltage in microvolts*/
+    uint_fast32_t               refVoltage;
+    /*!< Reference source for the ADC to use */
+    ADCCC26XX_Reference_Source  refSource;
+    /*!< Time the ADC spends sampling. This is load dependent */
+    ADCCC26XX_Sampling_Duration samplingDuration;
+    /*!< Source that the ADC triggers off of. Currently only supports AUXADC_TRIGGER_MANUAL */
+    ADCCC26XX_Trigger_Source    triggerSource;
 } ADCCC26XX_HWAttrs;
 
 /*!
@@ -143,11 +164,15 @@ typedef struct ADCCC26XX_HWAttrs {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct ADCCC26XX_Object {
-    PIN_State                       pinState;                   /*!< Pin state object */
-    PIN_Handle                      pinHandle;                  /*!< Pin handle */
-    bool                            isOpen;                     /*!< Flag if the instance is in use */
-    bool                            isProtected;                /*!< Flag to indicate if thread safety is ensured by the driver */
+typedef struct {
+    /*!< Pin state object */
+    PIN_State                       pinState;
+    /*!< Pin handle */
+    PIN_Handle                      pinHandle;
+    /*!< Flag if the instance is in use */
+    bool                            isOpen;
+    /*!< Flag to indicate if thread safety is ensured by the driver */
+    bool                            isProtected;
 } ADCCC26XX_Object;
 
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2018 Texas Instruments Incorporated
+ * Copyright (c) 2017-2019 Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,6 +38,7 @@
 
 #include <ti/drivers/SHA2.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+#include <ti/drivers/dpl/DebugP.h>
 
 const SHA2_Params SHA2_defaultParams =
 {
@@ -50,4 +51,14 @@ const SHA2_Params SHA2_defaultParams =
 void SHA2_Params_init(SHA2_Params *params)
 {
     *params = SHA2_defaultParams;
+}
+
+/*
+ *  ======== SHA2_open ========
+ */
+SHA2_Handle SHA2_open(uint_least8_t index, const SHA2_Params *params) {
+    DebugP_assert(index < SHA2_count);
+
+    SHA2_Config *config = (SHA2_Config*)&SHA2_config[index];
+    return SHA2_construct(config, params);
 }

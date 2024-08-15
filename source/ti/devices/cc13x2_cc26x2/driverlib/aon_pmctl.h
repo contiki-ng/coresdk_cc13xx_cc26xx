@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       aon_pmctl.h
-*  Revised:        2017-11-02 14:16:14 +0100 (Thu, 02 Nov 2017)
-*  Revision:       50156
+*  Revised:        2020-08-19 12:18:33 +0200 (Wed, 19 Aug 2020)
+*  Revision:       58172
 *
 *  Description:    Defines and prototypes for the AON Power-Management Controller
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

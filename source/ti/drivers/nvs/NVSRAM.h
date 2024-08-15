@@ -107,7 +107,7 @@ extern const NVS_FxnTable NVSRAM_fxnTable;
  *  The 'regionSize' must be an integer multiple of the 'sectorSize'.
  *
  *  Defining and reserving RAM memory regions can be done entirely within the
- *  Board.c file.
+ *  ti_drivers_config.c file.
  *
  *  The example below defines a char array, 'ramBuf' and uses compiler
  *  pragmas to place 'ramBuf' at an aligned address within RAM.

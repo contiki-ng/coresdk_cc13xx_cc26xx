@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,6 +59,13 @@ uint32_t WatchdogCC26XX_convertMsToTicks(Watchdog_Handle handle,
 /* WatchdogCC26XX internal functions */
 static void WatchdogCC26XX_initHw(Watchdog_Handle handle);
 
+/* WatchdogCC26XX internal callback function */
+static void WatchdogCC26XX_callbackFxn(void);
+
+/* WatchdogCC26XX global variables */
+static Watchdog_Handle    watchdogHandle;
+static Watchdog_Callback  watchdogUserCallback;
+
 /* Watchdog function table for CC26XX implementation */
 const Watchdog_FxnTable WatchdogCC26XX_fxnTable = {
     WatchdogCC26XX_clear,
@@ -74,6 +81,15 @@ const Watchdog_FxnTable WatchdogCC26XX_fxnTable = {
 #define MAX_RELOAD_VALUE        0xFFFFFFFF
 #define WATCHDOG_DIV_RATIO      32            /* Watchdog division ratio */
 #define MS_RATIO                1000          /* millisecond to second ratio */
+
+/*
+ *  ======== WatchdogCC26XX_callbackFxn ========
+ */
+static void WatchdogCC26XX_callbackFxn(void)
+{
+    /* Call user callback function */
+    (watchdogUserCallback)((uintptr_t)watchdogHandle);
+}
 
 /*
  *  ======== WatchdogCC26XX_clear ========
@@ -123,7 +139,6 @@ void WatchdogCC26XX_init(Watchdog_Handle handle)
 Watchdog_Handle WatchdogCC26XX_open(Watchdog_Handle handle, Watchdog_Params *params)
 {
     unsigned int                   key;
-    HwiP_Params                     hwiParams;
     WatchdogCC26XX_Object         *object;
 
     /* get the pointer to the object and hwAttrs */
@@ -146,13 +161,11 @@ Watchdog_Handle WatchdogCC26XX_open(Watchdog_Handle handle, Watchdog_Params *par
     object->debugStallMode = params->debugStallMode;
     object->resetMode      = params->resetMode;
 
-    /* Construct Hwi object for Watchdog */
-    HwiP_Params_init(&hwiParams);
-    hwiParams.arg = (uintptr_t)handle;
-
     /* setup callback function if defined */
     if (params->callbackFxn != NULL) {
-        HwiP_plug(INT_NMI_FAULT, (void *)params->callbackFxn);
+        watchdogHandle = handle;
+        watchdogUserCallback = params->callbackFxn;
+        HwiP_plug(INT_NMI_FAULT, (void *)WatchdogCC26XX_callbackFxn);
     }
 
     /* initialize the watchdog hardware */

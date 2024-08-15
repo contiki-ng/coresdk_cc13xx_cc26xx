@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  *  @file       AESCCM.h
  *
  *  @brief      AESCCM driver header
- *
- * @warning     This is a beta API. It may change in future releases.
  *
  *  @anchor ti_drivers_AESCCM_Overview
  *  # Overview #
@@ -324,15 +322,15 @@
 #ifndef ti_drivers_AESCCM__include
 #define ti_drivers_AESCCM__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * Common AESCCM status code reservation offset.
@@ -389,9 +387,28 @@ extern "C" {
 #define AESCCM_STATUS_CANCELED (-4)
 
 /*!
+ *  @brief AESCCM Global configuration
+ *
+ *  The AESCCM_Config structure contains a set of pointers used to characterize
+ *  the AESCCM driver implementation.
+ *
+ *  This structure needs to be defined before calling AESCCM_init() and it must
+ *  not be changed thereafter.
+ *
+ *  @sa     AESCCM_init()
+ */
+typedef struct {
+    /*! Pointer to a driver specific data object */
+    void               *object;
+
+    /*! Pointer to a driver specific hardware attributes structure */
+    void         const *hwAttrs;
+} AESCCM_Config;
+
+/*!
  *  @brief  A handle that is returned from an AESCCM_open() call.
  */
-typedef struct AESCCM_Config    *AESCCM_Handle;
+typedef AESCCM_Config *AESCCM_Handle;
 
 /*!
  * @brief   The way in which CCM function calls return after performing an
@@ -503,25 +520,6 @@ typedef enum {
 } AESCCM_OperationType;
 
 /*!
- *  @brief AESCCM Global configuration
- *
- *  The AESCCM_Config structure contains a set of pointers used to characterize
- *  the AESCCM driver implementation.
- *
- *  This structure needs to be defined before calling AESCCM_init() and it must
- *  not be changed thereafter.
- *
- *  @sa     AESCCM_init()
- */
-typedef struct AESCCM_Config {
-    /*! Pointer to a driver specific data object */
-    void               *object;
-
-    /*! Pointer to a driver specific hardware attributes structure */
-    void         const *hwAttrs;
-} AESCCM_Config;
-
-/*!
  *  @brief  The definition of a callback function used by the AESCCM driver
  *          when used in ::AESCCM_RETURN_BEHAVIOR_CALLBACK
  *
@@ -608,7 +606,7 @@ void AESCCM_Params_init(AESCCM_Params *params);
  *  @sa     AESCCM_init()
  *  @sa     AESCCM_close()
  */
-AESCCM_Handle AESCCM_open(uint_least8_t index, AESCCM_Params *params);
+AESCCM_Handle AESCCM_open(uint_least8_t index, const AESCCM_Params *params);
 
 /*!
  *  @brief  Function to close a CCM peripheral specified by the CCM handle
@@ -684,10 +682,35 @@ int_fast16_t AESCCM_oneStepDecrypt(AESCCM_Handle handle, AESCCM_Operation *opera
  *
  *  @param  [in] handle Handle of the operation to cancel
  *
- *  @retval #AESCBC_STATUS_SUCCESS               The operation was canceled.
- *  @retval #AESCBC_STATUS_ERROR                 The operation was not canceled.
+ *  @retval #AESCCM_STATUS_SUCCESS               The operation was canceled.
+ *  @retval #AESCCM_STATUS_ERROR                 The operation was not canceled.
  */
 int_fast16_t AESCCM_cancelOperation(AESCCM_Handle handle);
+
+/**
+ *  @brief  Constructs a new AESCCM object
+ *
+ *  Unlike #AESCCM_open(), #AESCCM_construct() does not require the hwAttrs and
+ *  object to be allocated in a #AESCCM_Config array that is indexed into.
+ *  Instead, the #AESCCM_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #AESCCM_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #AESCCM_Params to configure the driver instance.
+ *
+ *  @return        Returns a #AESCCM_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+AESCCM_Handle AESCCM_construct(AESCCM_Config *config, const AESCCM_Params *params);
 
 #ifdef __cplusplus
 }

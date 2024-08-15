@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,6 +49,10 @@
  * specific config, and casting in the general API will ensure that the correct
  * device specific functions are called.
  * This is also reflected in the example code in [Use Cases](@ref USE_CASES).
+ * This driver supports polling modes for UART_read() and UART_write().  Text
+ * mode (e.g., UART_read() returns on receiving a newline character) is also
+ * supported by this driver.  If polling mode and text mode are not needed,
+ * the UARTCC26XX driver can be used instead, which will reduce code size.
  *
  * # General Behavior #
  * Before using the UART in CC26X2:
@@ -166,10 +170,10 @@
  *          .intPriority = ~0,
  *          .swiPriority = 0,
  *          .flowControl = UARTCC26X2_FLOWCTRL_HARDWARE,
- *          .txPin       = Board_UART_TX,
- *          .rxPin       = Board_UART_RX,
- *          .ctsPin      = Board_UART_CTS,
- *          .rtsPin      = Board_UART_RTS
+ *          .txPin       = CONFIG_UART_TX,
+ *          .rxPin       = CONFIG_UART_RX,
+ *          .ctsPin      = CONFIG_UART_CTS,
+ *          .rtsPin      = CONFIG_UART_RTS
  *          .ringBufPtr  = uartCC26X2RingBuffer[0],
  *          .ringBufSize = sizeof(uartCC26X2RingBuffer[0]),
  *          .txIntFifoThr= UARTCC26X2_FIFO_THRESHOLD_1_8,
@@ -211,10 +215,10 @@
  *  UART_Params_init(&params);
  *  params.baudRate      = 9600;
  *  params.writeDataMode = UART_DATA_BINARY;
- *  params.readTimeout   = timeoutUs / ClockP_tickPeriod; // Default tick period is 10us
+ *  params.readTimeout   = timeoutUs / ClockP_getSystemTickPeriod(); // Default tick period is 10us
  *
  *  // Open the UART and do the read
- *  handle = UART_open(Board_UART, &params);
+ *  handle = UART_open(CONFIG_UART, &params);
  *  int rxBytes = UART_read(handle, rxBuf, 100);
  *  @endcode
  *
@@ -234,7 +238,7 @@
  *  params.writeDataMode = UART_DATA_BINARY;
  *
  *  // Open the UART and initiate the partial read
- *  handle = UART_open(Board_UART, &params);
+ *  handle = UART_open(CONFIG_UART, &params);
  *  // Enable RETURN_PARTIAL
  *  UART_control(handle, UARTCC26X2_CMD_RETURN_PARTIAL_ENABLE, NULL);
  *  // Begin read
@@ -255,7 +259,7 @@
  *  params.writeDataMode = UART_DATA_BINARY;
  *
  *  // Open the UART and do the write
- *  handle = UART_open(Board_UART, &params);
+ *  handle = UART_open(CONFIG_UART, &params);
  *  UART_write(handle, txBuf, sizeof(txBuf));
  *  @endcode
  *
@@ -317,7 +321,7 @@
  *      params.readCallback  = readCallback;
  *
  *      // Open the UART and initiate the first read
- *      handle = UART_open(Board_UART, &params);
+ *      handle = UART_open(CONFIG_UART, &params);
  *      wantedRxBytes = 16;
  *      int rxBytes = UART_read(handle, rxBuf, wantedRxBytes);
  *
@@ -341,10 +345,6 @@
 #ifndef ti_drivers_uart_UARTCC26X2__include
 #define ti_drivers_uart_UARTCC26X2__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -357,7 +357,9 @@ extern "C" {
 #include <ti/drivers/pin/PINCC26XX.h>
 #include <ti/drivers/utils/RingBuf.h>
 
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * @brief No hardware flow control
@@ -436,7 +438,7 @@ extern "C" {
  *  set to 4/8 full, and the TX interrupt FIFO threshold is set to 1/8
  *  full.
  */
-typedef enum UARTCC26X2_FifoThreshold {
+typedef enum {
     UARTCC26X2_FIFO_THRESHOLD_DEFAULT = 0, /*!< Use default FIFO threshold */
     UARTCC26X2_FIFO_THRESHOLD_1_8,         /*!< FIFO threshold of 1/8 full */
     UARTCC26X2_FIFO_THRESHOLD_2_8,         /*!< FIFO threshold of 2/8 full */
@@ -532,7 +534,7 @@ extern const UART_FxnTable UARTCC26X2_fxnTable;
  *
  *  The .ctsPin and .rtsPin must be assigned to enable flow control.
  */
-typedef struct UARTCC26X2_HWAttrs {
+typedef struct {
     /*! UART Peripheral's base address */
     uint32_t        baseAddr;
     /*! UART Peripheral's interrupt vector */
@@ -572,7 +574,7 @@ typedef struct UARTCC26X2_HWAttrs {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct UARTCC26X2_Object {
+typedef struct {
     /* UART state variable */
     struct {
         bool             opened:1;         /* Has the obj been opened */

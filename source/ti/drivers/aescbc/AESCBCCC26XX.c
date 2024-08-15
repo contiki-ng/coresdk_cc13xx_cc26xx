@@ -62,10 +62,6 @@ static int_fast16_t AESCBC_startOperation(AESCBC_Handle handle,
 static int_fast16_t AESCBC_waitForResult(AESCBC_Handle handle);
 static void AESCBC_cleanup(AESCBC_Handle handle);
 
-/* Extern globals */
-extern const AESCBC_Config AESCBC_config[];
-extern const uint_least8_t AESCBC_count;
-
 /* Static globals */
 static bool isInitialized = false;
 
@@ -122,6 +118,7 @@ static void AESCBC_hwiFxn (uintptr_t arg0) {
  *  ======== AESCBC_cleanup ========
  */
 static void AESCBC_cleanup(AESCBC_Handle handle) {
+    AESCBCCC26XX_Object *object = handle->object;
 
     /* Since plaintext keys use two reserved (by convention) slots in the keystore,
      * the slots must be invalidated to prevent its re-use without reloading
@@ -129,6 +126,11 @@ static void AESCBC_cleanup(AESCBC_Handle handle) {
      */
     AESInvalidateKey(AES_KEY_AREA_6);
     AESInvalidateKey(AES_KEY_AREA_7);
+
+    /* Read out the iv for the next block should we want to continue the
+     * chain of blocks in a later operation.
+     */
+    AESReadTag(object->iv, AES_BLOCK_SIZE);
 
     /*  This powers down all sub-modules of the crypto module until needed.
      *  It does not power down the crypto module at PRCM level and provides small
@@ -142,7 +144,10 @@ static void AESCBC_cleanup(AESCBC_Handle handle) {
      *  The semaphore must be posted before the callbackFxn to allow the chaining
      *  of operations.
      */
-    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    if (object->threadSafe == true) {
+        /* Release the CRYPTO mutex */
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    }
 }
 
 /*
@@ -155,17 +160,15 @@ void AESCBC_init(void) {
 }
 
 /*
- *  ======== AESCBC_open ========
+ *  ======== AESCBC_construct ========
  */
-AESCBC_Handle AESCBC_open(uint_least8_t index, AESCBC_Params *params) {
+AESCBC_Handle AESCBC_construct(AESCBC_Config *config, const AESCBC_Params *params) {
     AESCBC_Handle               handle;
     AESCBCCC26XX_Object        *object;
     uint_fast8_t                key;
 
-    handle = (AESCBC_Handle)&(AESCBC_config[index]);
+    handle = config;
     object = handle->object;
-
-    DebugP_assert(index < AESCBC_count);
 
     key = HwiP_disable();
 
@@ -190,6 +193,7 @@ AESCBC_Handle AESCBC_open(uint_least8_t index, AESCBC_Params *params) {
     object->returnBehavior = params->returnBehavior;
     object->callbackFxn = params->callbackFxn;
     object->semaphoreTimeout = params->returnBehavior == AESCBC_RETURN_BEHAVIOR_BLOCKING ? params->timeout : SemaphoreP_NO_WAIT;
+    object->threadSafe = true;
 
     /* Set power dependency - i.e. power up and enable clock for Crypto (CryptoResourceCC26XX) module. */
     Power_setDependency(PowerCC26XX_PERIPH_CRYPTO);
@@ -232,12 +236,14 @@ static int_fast16_t AESCBC_startOperation(AESCBC_Handle handle,
 
     DebugP_assert(handle);
 
-    /* Try and obtain access to the crypto module */
-    resourceAcquired = SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore,
-                                       object->semaphoreTimeout);
+    if (object->threadSafe == true) {
+        /* Try and obtain access to the crypto module */
+        resourceAcquired = SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore,
+                                           object->semaphoreTimeout);
 
-    if (resourceAcquired != SemaphoreP_OK) {
-        return AESCBC_STATUS_RESOURCE_UNAVAILABLE;
+        if (resourceAcquired != SemaphoreP_OK) {
+            return AESCBC_STATUS_RESOURCE_UNAVAILABLE;
+        }
     }
 
     object->operationType = operationType;
@@ -256,9 +262,10 @@ static int_fast16_t AESCBC_startOperation(AESCBC_Handle handle,
 
     /* Load the key from RAM or flash into the key store at a hardcoded and reserved location */
     if (AESWriteToKeyStore(keyingMaterial, keyLength, AES_KEY_AREA_6) != AES_SUCCESS) {
-        /* Release the CRYPTO mutex */
-        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
-
+        if (object->threadSafe == true) {
+            /* Release the CRYPTO mutex */
+            SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        }
         return AESCBC_STATUS_ERROR;
     }
 
@@ -283,8 +290,10 @@ static int_fast16_t AESCBC_startOperation(AESCBC_Handle handle,
         AESInvalidateKey(AES_KEY_AREA_6);
         AESInvalidateKey(AES_KEY_AREA_7);
 
-        /* Release the CRYPTO mutex */
-        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        if (object->threadSafe == true) {
+            /* Release the CRYPTO mutex */
+            SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        }
 
         return AESCBC_STATUS_ERROR;
     }
@@ -298,6 +307,7 @@ static int_fast16_t AESCBC_startOperation(AESCBC_Handle handle,
     AESSetInitializationVector((uint32_t *)operation->iv);
 
     AESSetCtrl(CRYPTO_AESCTL_CBC |
+               CRYPTO_AESCTL_SAVE_CONTEXT |
                (operationType == AESCBC_OPERATION_TYPE_ENCRYPT ? CRYPTO_AESCTL_DIR : 0));
 
     AESSetDataLength(operation->inputLength);
@@ -396,7 +406,9 @@ int_fast16_t AESCBC_cancelOperation(AESCBC_Handle handle) {
      *  The semaphore must be posted before the callbackFxn to allow the chaining
      *  of operations.
      */
-    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    if (object->threadSafe == true) {
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    }
 
     if (object->returnBehavior == AESCBC_RETURN_BEHAVIOR_BLOCKING) {
         /* Unblock the pending task to signal that the operation is complete. */
@@ -411,4 +423,31 @@ int_fast16_t AESCBC_cancelOperation(AESCBC_Handle handle) {
     }
 
     return AESCBC_STATUS_SUCCESS;
+}
+
+int_fast16_t AESCBC_getNextIv(AESCBC_Handle handle, uint8_t *iv) {
+    AESCBCCC26XX_Object *object = handle->object;
+
+    memcpy(iv, object->iv, sizeof(object->iv));
+
+    return AESCBC_STATUS_SUCCESS;
+}
+
+bool AESCBC_acquireLock(AESCBC_Handle handle, uint32_t timeout) {
+    return CryptoResourceCC26XX_acquireLock(timeout);
+}
+
+void AESCBC_releaseLock(AESCBC_Handle handle) {
+    CryptoResourceCC26XX_releaseLock();
+}
+
+void AESCBC_enableThreadSafety(AESCBC_Handle handle) {
+    AESCBCCC26XX_Object *object = handle->object;
+
+    object->threadSafe = true;
+}
+void AESCBC_disableThreadSafety(AESCBC_Handle handle) {
+    AESCBCCC26XX_Object *object = handle->object;
+
+    object->threadSafe = false;
 }

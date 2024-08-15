@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -45,9 +45,6 @@
 
 #ifndef ti_drivers_PINCC26XX__include
 #define ti_drivers_PINCC26XX__include
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include <stdint.h>
 #include <stddef.h>
@@ -65,6 +62,10 @@ extern "C" {
 // efficient way
 #if defined(__IAR_SYSTEMS_ICC__) || defined(DOXYGEN)
     #include <intrinsics.h>
+#endif
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 __STATIC_INLINE uint32_t PIN_ctz(uint32_t x) {
@@ -361,7 +362,7 @@ extern PIN_Status PINCC26XX_setMux(PIN_Handle handle, PIN_Id pinId, int32_t nMux
  *  will be called in.
  *
  */
-typedef struct PINCC26XX_HWAttrs{
+typedef struct{
     /*! @brief SPI CC26XXDMA Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits,

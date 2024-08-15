@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,10 +43,11 @@ const I2S_Params I2S_defaultParams = {
   .samplingFrequency     = 8000,                              /* Sampling Freq */
   .memorySlotLength      = I2S_MEMORY_LENGTH_16BITS,          /* Memory slot length */
   .moduleRole            = I2S_MASTER,                        /* Master / Slave selection */
+  .trueI2sFormat         = (bool)true,                        /* Activate true I2S format */
   .invertWS              = (bool)true,                        /* WS inversion */
-  .isMSBFirst            = (bool)true,                        /* Endianness selection*/
-  .isDMAUnused           = (bool)false,                       /* Selection between DMA and CPU transmissions*/
-  .samplingEdge          = I2S_SAMPLING_EDGE_RISING,          /* Sampling edge*/
+  .isMSBFirst            = (bool)true,                        /* Endianness selection */
+  .isDMAUnused           = (bool)false,                       /* Selection between DMA and CPU transmissions */
+  .samplingEdge          = I2S_SAMPLING_EDGE_RISING,          /* Sampling edge */
   .beforeWordPadding     = 0,                                 /* Before sample padding */
   .bitsPerWord           = 16,                                /* Bits/Sample */
   .afterWordPadding      = 0,                                 /* After sample padding */
@@ -56,7 +57,7 @@ const I2S_Params I2S_defaultParams = {
   .SD0Channels           = I2S_CHANNELS_STEREO,               /* Channels activated on SD0 */
   .SD1Channels           = I2S_CHANNELS_STEREO,               /* Channels activated on SD1 */
   .phaseType             = I2S_PHASE_TYPE_DUAL,               /* Phase type */
-  .startUpDelay          = 0,                                 /* Start up delay */
+  .startUpDelay          = 2,                                 /* Start up delay in number of WS periods */
   .MCLKDivider           = 40,                                /* MCLK divider */
   .readCallback          = NULL,                              /* Read callback */
   .writeCallback         = NULL,                              /* Write callback */

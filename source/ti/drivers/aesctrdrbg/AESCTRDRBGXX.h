@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, Texas Instruments Incorporated
+ * Copyright (c) 2019-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  *  @file       AESCTRDRBGXX.h
  *
  *  @brief      Generic AESCTRDRBG implementation based on the AESCTR driver
- *
- *  @warning     This is a beta API. It may change in future releases.
  *
  *  This file should only be included in the board file to fill the AESCTR_config
  *  struct.

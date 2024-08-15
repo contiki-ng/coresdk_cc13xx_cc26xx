@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (c) 2017-2020 Texas Instruments Incorporated - http://www.ti.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,10 +44,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "_internal.h"
 
 /* include compiler sys/types.h */
 #include <../include/sys/types.h>
+
+#include "_internal.h"
 
 #ifdef __cplusplus
 extern "C" {

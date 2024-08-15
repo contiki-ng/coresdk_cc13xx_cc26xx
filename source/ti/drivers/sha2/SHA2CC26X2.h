@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,22 +34,22 @@
  *
  *  @brief      SHA2 driver implementation for the CC26X2 family
  *
- * @warning     This is a beta API. It may change in future releases.
- *
  *  This file should only be included in the board file to fill the SHA2_config
  *  struct.
  *
- *  The CC26XX family has a dedicated hardware crypto accelerator. It is capable
+ *  The CC26X2 family has a dedicated hardware crypto accelerator. It is capable
  *  of multiple AES block cipher modes of operation as well as SHA2 operations.
  *  Only one operation can be carried out on the accerator at a time. Mutual
  *  exclusion is implemented at the driver level and coordinated between all
  *  drivers relying onthe accelerator. It is transparent to the application
  *  and only noted ensure sensible access timeouts are set.
  *
- *  The driver implementation does not perform runtime checks for most input parameters.
- *  Only values that are likely to have a stochastic element to them are checked (such
- *  as whether a driver is already open). Higher input paramter validation coverage is
- *  achieved by turning on assertions when compiling the driver.
+ *  The driver implementation does not perform runtime checks for most input
+ *  parameters.
+ *  Only values that are likely to have a stochastic element to them are
+ *  checked (such as whether a driver is already open). Higher input paramter
+ *  validation coverage is achieved by turning on assertions when compiling
+ *  the driver.
  *
  */
 
@@ -73,20 +73,21 @@ extern "C" {
  *  #SHA2_Config struct.
  */
 typedef struct {
-    uint8_t    intPriority; /*!< Hardware interrupt priority of the Hash accelerator.
-                             *
-                             * The CC26XX provides 8 interrupt priority levels encoded in three bits:
-                             *
-                             * Value        | Description
-                             * ------------ | -----------------------
-                             * (~0)         | Special value: always lowest priority across all OS kernels.
-                             * (7 << 5)     | Priority level 7: lowest, but rather use ~0 instead.
-                             * ..           | ..
-                             * (0 << 5)     | Priority level 0: highest, not supported by this driver
-                             *
-                             * Hardware interrupts with priority level 0 ignore the hardware interrupt dispatcher
-                             * for minimum latency. This is not supported by this driver.
-                             */
+    /*!< Hardware interrupt priority of the Hash accelerator.
+     *
+     * The CC26XX provides 8 interrupt priority levels encoded in three bits:
+     *
+     * Value        | Description
+     * ------------ | -----------------------
+     * (~0)         | Special value: always lowest priority across all OS kernels.
+     * (7 << 5)     | Priority level 7: lowest, but rather use ~0 instead.
+     * ..           | ..
+     * (0 << 5)     | Priority level 0: highest, not supported by this driver
+     *
+     * Hardware interrupts with priority level 0 ignore the hardware interrupt dispatcher
+     * for minimum latency. This is not supported by this driver.
+     */
+    uint8_t    intPriority;
 } SHA2CC26X2_HWAttrs;
 
 
@@ -104,6 +105,7 @@ typedef struct {
     bool                            isOpen;
     volatile bool                   operationInProgress;
     bool                            operationCanceled;
+    volatile uint8_t                retainAccessCounter;
     SHA2_ReturnBehavior             returnBehavior;
     int_fast16_t                    returnStatus;
     uint32_t                        accessTimeout;
@@ -111,30 +113,10 @@ typedef struct {
     SHA2_HashType                   hashType;
     uint16_t                        bytesInBuffer;
     uint32_t                        bytesProcessed;
+    uint32_t                        digest[SHA2CC26X2_MAX_DIGEST_LENGTH_BYTES / sizeof(uint32_t)];
+    uint32_t                        hmacDigest[SHA2CC26X2_MAX_DIGEST_LENGTH_BYTES / sizeof(uint32_t)];
     uint8_t                         buffer[SHA2CC26X2_MAX_BLOCK_SIZE_BYTES];
-    uint32_t                        digest[SHA2CC26X2_MAX_DIGEST_LENGTH_BYTES / 4];
 } SHA2CC26X2_Object;
-
-/*
- * This function exists only because of mbedTLS. It is not a
- * top-level function for now.
- *
- * Use it like this:
- *
- * SHA2CC26X2_Object object;
- * const SHA2CC26X2_HWAttrs attrs = {
- *     .intPriority = 0xFF;
- * };
- *
- * SHA2_Config config = {
- *     .object = &object,
- *     .hwAttrs = &hwAttrs
- * };
- *
- * SHA2_Handle handle = SHA2_construct(&config, ...);
- *
- */
-SHA2_Handle SHA2CC26X2_construct(SHA2_Config *config, const SHA2_Params *params);
 
 /*! \endcond */
 

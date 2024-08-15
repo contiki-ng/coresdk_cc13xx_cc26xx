@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -334,7 +334,6 @@ static void SPICC26X2DMA_hwiFxn (uintptr_t arg)
 {
     uint32_t                      freeChannel;
     uint32_t                      intStatus;
-    uintptr_t                     key;
     SPI_Transaction              *completedList;
     size_t                       *transferSize;
     volatile tDMAControlTable    *rxDmaTableEntry;
@@ -347,16 +346,12 @@ static void SPICC26X2DMA_hwiFxn (uintptr_t arg)
     SSIIntClear(hwAttrs->baseAddr, intStatus);
 
     if (intStatus & SSI_RXOR) {
-        key = HwiP_disable();
-
         if (object->headPtr != NULL) {
             /*
              * RX overrun during a transfer; mark the current transfer
              * as failed & cancel all remaining transfers.
              */
             object->headPtr->status = SPI_TRANSFER_FAILED;
-
-            HwiP_restore(key);
 
             SPICC26X2DMA_transferCancel((SPI_Handle) arg);
         }
@@ -376,8 +371,6 @@ static void SPICC26X2DMA_hwiFxn (uintptr_t arg)
 
             /* Clear out the FIFO by resetting SPI module and re-initting */
             flushFifos(hwAttrs);
-
-            HwiP_restore(key);
         }
     }
     else {
@@ -437,8 +430,6 @@ static void SPICC26X2DMA_hwiFxn (uintptr_t arg)
 
             if((rxDmaTableEntry->ui32Control & UDMA_MODE_M) == UDMA_MODE_STOP &&
                 *transferSize != 0) {
-                key = HwiP_disable();
-
                 object->framesTransferred += *transferSize;
                 freeChannel = object->activeChannel;
                 object->activeChannel = (freeChannel == UDMA_PRI_SELECT) ?
@@ -466,8 +457,6 @@ static void SPICC26X2DMA_hwiFxn (uintptr_t arg)
                         UDMACC26XX_channelEnable(object->udmaHandle,
                                                  hwAttrs->txChannelBitMask);
                     }
-
-                    HwiP_restore(key);
                 }
                 else {
                     /*
@@ -538,8 +527,6 @@ static void SPICC26X2DMA_hwiFxn (uintptr_t arg)
                          * SPI_transferCancel() is executed.
                          */
                     }
-
-                    HwiP_restore(key);
 
                     /* Post driver SWI to execute transaction callbacks */
                     SwiP_post(&(object->swi));
@@ -762,9 +749,11 @@ bool SPICC26X2DMA_transfer(SPI_Handle handle, SPI_Transaction *transaction)
     /*
      * Polling transfer if BLOCKING mode & transaction->count < threshold
      * Slaves not allowed to use polling unless timeout is disabled
+     * Polling not allowed with returnPartial mode
      */
     if (object->transferMode == SPI_MODE_BLOCKING &&
         transaction->count < hwAttrs->minDmaTransferSize &&
+        object->returnPartial == SPICC26X2DMA_retPartDisabled &&
         (object->mode == SPI_MASTER ||
         object->transferTimeout == SPI_WAIT_FOREVER)) {
         HwiP_restore(key);
@@ -833,6 +822,13 @@ void SPICC26X2DMA_transferCancel(SPI_Handle handle) {
     key = HwiP_disable();
 
     if (object->headPtr == NULL) {
+
+        /*
+         * Disable the SPI peripheral in case the peripherals finite state
+         * machine is in a bad state. Calling SPI_transfer() will re-enable
+         * the peripheral.
+         */
+        SSIDisable(hwAttrs->baseAddr);
         HwiP_restore(key);
 
         return;

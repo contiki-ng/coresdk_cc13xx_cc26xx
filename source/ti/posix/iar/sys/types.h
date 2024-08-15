@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (c) 2017-2020 Texas Instruments Incorporated - http://www.ti.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -66,10 +66,15 @@ typedef __SIZE_T_TYPE__ ssize_t;
 #endif
 
 typedef uint32_t clockid_t;
+typedef uint32_t mode_t;
 typedef unsigned long useconds_t;
 typedef unsigned long timer_t;
 typedef long suseconds_t;
 typedef unsigned short uid_t;
+
+#ifdef __cplusplus
+}
+#endif
 
 /*  IAR compiler defines time_t in time[32,64].h (should be in sys/types.h).
  *  Pull in time.h (which includes time[32,64].h) to get time_t definition.
@@ -86,6 +91,10 @@ typedef unsigned short uid_t;
  *                      posix types
  *************************************************************************
  */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  *  ======== pthread_attr_t ========

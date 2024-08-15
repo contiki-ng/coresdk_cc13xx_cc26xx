@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,8 +39,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/ECDSA.h>
+
+/* Extern globals */
+extern const ECDSA_Config ECDSA_config[];
+extern const uint_least8_t ECDSA_count;
 
 const ECDSA_Params ECDSA_defaultParams = {
     .returnBehavior = ECDSA_RETURN_BEHAVIOR_BLOCKING,
@@ -54,6 +59,16 @@ const ECDSA_Params ECDSA_defaultParams = {
  */
 void ECDSA_Params_init(ECDSA_Params *params){
     *params = ECDSA_defaultParams;
+}
+
+/*
+ *  ======== ECDSA_open ========
+ */
+ECDSA_Handle ECDSA_open(uint_least8_t index, const ECDSA_Params *params) {
+    DebugP_assert(index < ECDSA_count);
+
+    ECDSA_Config *config = (ECDSA_Config*)&ECDSA_config[index];
+    return ECDSA_construct(config, params);
 }
 
 /*

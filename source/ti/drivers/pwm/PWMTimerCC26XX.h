@@ -114,7 +114,7 @@
  *  params.dutyUnits      = PWM_DUTY_FRACTION;
  *  params.dutyValue      = PWM_DUTY_FRACTION_MAX / 2;
  *
- *  pwmHandle = PWM_open(Board_PWM0, &params);
+ *  pwmHandle = PWM_open(CONFIG_PWM0, &params);
  *  if(pwmHandle == NULL) {
  *    Log_error0("Failed to open PWM");
  *    Task_exit();
@@ -128,10 +128,6 @@
 #ifndef ti_drivers_pwm__PWMTimerCC26XX_include
 #define ti_drivers_pwm__PWMTimerCC26XX_include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -139,6 +135,9 @@ extern "C" {
 #include <ti/drivers/PWM.h>
 #include <ti/drivers/timer/GPTimerCC26XX.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  *  @name PWMTimerCC26XX specific control commands and arguments

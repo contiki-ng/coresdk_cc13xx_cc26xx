@@ -34,8 +34,6 @@
  *
  * @brief      AESCTRDRBG driver header
  *
- * @warning    This is a beta API. It may change in future releases.
- *
  * @anchor ti_drivers_AESCTRDRBG_Overview
  * <h3> Overview </h3>
  * AES_CTR_DRBG is a cryptographically secure deterministic random bit generator
@@ -336,7 +334,7 @@ typedef enum {
  * |#AESCTRDRBG_RETURN_BEHAVIOR_POLLING  | X     | X     | X     |
  *
  */
-typedef enum AESCTRDRBG_ReturnBehavior_ {
+typedef enum {
     /*!< The function call will block while AESCTRDRBG operation goes
      *   on in the background. AESCTRDRBG operation results are available
      *   after the function returns.
@@ -507,7 +505,30 @@ int_fast16_t AESCTRDRBG_reseed(AESCTRDRBG_Handle handle,
                                const void *additionalData,
                                size_t additionalDataLength);
 
-
+/**
+ *  @brief  Constructs a new AESCTRDRBG object
+ *
+ *  Unlike #AESCTRDRBG_open(), #AESCTRDRBG_construct() does not require the hwAttrs and
+ *  object to be allocated in a #AESCTRDRBG_Config array that is indexed into.
+ *  Instead, the #AESCTRDRBG_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #AESCTRDRBG_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #AESCTRDRBG_Params to configure the driver instance.
+ *
+ *  @return        Returns a #AESCTRDRBG_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+AESCTRDRBG_Handle AESCTRDRBG_construct(AESCTRDRBG_Config *config, const AESCTRDRBG_Params *params);
 
 #ifdef __cplusplus
 }

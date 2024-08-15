@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,6 +38,8 @@
 #include <ti/drivers/dpl/SemaphoreP.h>
 
 #include "NoRTOS.h"
+
+extern uint32_t ClockP_tickPeriod;
 
 /*
  *  ======== NoRTOS_getConfig ========

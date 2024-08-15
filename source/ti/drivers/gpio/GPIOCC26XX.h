@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -46,7 +46,7 @@
  *  ### CC26XX GPIO Driver Configuration #
  *
  *  In order to use the GPIO APIs, the application is required
- *  to provide 3 structures in the Board.c file:
+ *  to provide 3 structures in the ti_drivers_config.c file:
  *
  *  1.  An array of @ref GPIO_PinConfig elements that defines the
  *  initial configuration of each pin used by the application. A
@@ -137,10 +137,6 @@
 #ifndef ti_drivers_GPIOCC26XX__include
 #define ti_drivers_GPIOCC26XX__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 
 #include <ti/drivers/GPIO.h>
@@ -148,7 +144,9 @@ extern "C" {
 
 #include DeviceFamily_constructPath(driverlib/ioc.h)
 
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  *  @brief  GPIO device specific driver configuration structure
@@ -174,7 +172,7 @@ extern "C" {
  *  };
  *  @endcode
  */
-typedef struct GPIOCC26XX_Config {
+typedef struct {
     /*! Pointer to the board's GPIO_PinConfig array */
     GPIO_PinConfig  *pinConfigs;
 

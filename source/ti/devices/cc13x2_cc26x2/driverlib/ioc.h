@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       ioc.h
-*  Revised:        2017-11-02 14:16:14 +0100 (Thu, 02 Nov 2017)
-*  Revision:       50156
+*  Revised:        2020-07-16 14:41:29 +0200 (Thu, 16 Jul 2020)
+*  Revision:       58010
 *
 *  Description:    Defines and prototypes for the IO Controller.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

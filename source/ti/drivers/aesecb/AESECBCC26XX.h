@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  *  @file       AESECBCC26XX.h
  *
  *  @brief      AESECB driver implementation for the CC26XX family
- *
- * @warning     This is a beta API. It may change in future releases.
  *
  *  This file should only be included in the board file to fill the AESECB_config
  *  struct.
@@ -72,10 +70,6 @@
 #ifndef ti_drivers_aesecb_AESECBCC26XX__include
 #define ti_drivers_aesecb_AESECBCC26XX__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -87,13 +81,17 @@ extern "C" {
 #include <ti/drivers/dpl/SwiP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*!
  *  @brief      AESECBCC26XX Hardware Attributes
  *
  *  AESECB26XX hardware attributes should be included in the board file
  *  and pointed to by the AESECB_config struct.
  */
-typedef struct AESECBCC26XX_HWAttrs {
+typedef struct {
     /*! @brief Crypto Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
@@ -114,10 +112,11 @@ typedef struct AESECBCC26XX_HWAttrs {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct AESECBCC26XX_Object {
+typedef struct {
     bool                            isOpen;
     bool                            operationInProgress;
     bool                            operationCanceled;
+    bool                            threadSafe;
     int_fast16_t                    returnStatus;
     AESECB_ReturnBehavior           returnBehavior;
     AESECB_OperationType            operationType;

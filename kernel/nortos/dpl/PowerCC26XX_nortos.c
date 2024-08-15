@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -54,6 +54,8 @@
 
 extern PowerCC26XX_ModuleState PowerCC26XX_module;
 extern const PowerCC26XX_Config PowerCC26XX_config;
+
+extern uint32_t ClockP_tickPeriod;
 
 static uintptr_t PowerCC26XX_swiKey;
 

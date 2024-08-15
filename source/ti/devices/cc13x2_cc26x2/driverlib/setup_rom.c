@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       setup_rom.c
-*  Revised:        2017-11-02 11:31:15 +0100 (Thu, 02 Nov 2017)
-*  Revision:       50143
+*  Revised:        2020-09-17 15:26:49 +0200 (Thu, 17 Sep 2020)
+*  Revision:       58682
 *
 *  Description:    Setup file for CC13xx/CC26xx devices.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

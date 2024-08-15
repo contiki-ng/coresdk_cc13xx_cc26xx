@@ -95,7 +95,7 @@
  *  SPI_Params_init(&spiParams);  // Initialize SPI parameters
  *  spiParams.dataSize = 8;       // 8-bit data size
  *
- *  spi = SPI_open(Board_SPI0, &spiParams);
+ *  spi = SPI_open(CONFIG_SPI0, &spiParams);
  *  if (spi == NULL) {
  *      while (1);  // SPI_open() failed
  *  }
@@ -149,7 +149,7 @@
  *
  *  SPI_Params_init(&spiParams);
  *  spiParams.transferMode = SPI_MODE_BLOCKING;
- *  spi = SPI_open(Board_SPI0, &spiParams);
+ *  spi = SPI_open(CONFIG_SPI0, &spiParams);
  *
  *  if (spi == NULL) {
  *      // Error opening SPI
@@ -167,7 +167,7 @@
  *  spiParams.transferMode = SPI_MODE_CALLBACK;
  *  spiParams.transferCallbackFxn = UserCallbackFxn;
  *
- *  spi = SPI_open(Board_SPI0, &spiParams);
+ *  spi = SPI_open(CONFIG_SPI0, &spiParams);
  *  if (spi == NULL) {
  *      // Error opening SPI
  *      while (1);
@@ -284,7 +284,7 @@
  *
  *  SPI_Params_init(&spiParams);
  *  spiParams.dataSize = 6;
- *  spi = SPI_open(Board_SPI0, &spiParams);
+ *  spi = SPI_open(CONFIG_SPI0, &spiParams);
  *  ...
  *  spiTransaction.count = someIntegerValue;
  *  spiTransaction.txBuf = transmitBuffer;
@@ -307,7 +307,7 @@
  *
  *  SPI_Params_init(&spiParams);
  *  spiParams.dataSize = 12;
- *  spi = SPI_open(Board_SPI0, &spiParams);
+ *  spi = SPI_open(CONFIG_SPI0, &spiParams);
  *  ...
  *  spiTransaction.count = someIntegerValue;
  *  spiTransaction.txBuf = transmitBuffer;
@@ -404,8 +404,8 @@
  *  @anchor ti_drivers_SPI_Configuration
  *  # Configuration
  *
- *  In order to use the SPI APIs, the application is required
- *  to provide device-specific SPI configuration in the Board.c file.
+ *  In order to use the SPI APIs, the application is required to provide
+ *  device-specific SPI configuration in the ti_drivers_config.c file.
  *  The SPI driver interface defines a configuration data structure:
  *
  *  @code
@@ -430,8 +430,8 @@
  *  Because the SPI configuration is very device dependent, you will need to
  *  check the doxygen for the device specific SPI implementation.  There you
  *  will find a description of the SPI hardware attributes.  Please also
- *  refer to the Board.c file of any of your examples to see the SPI
- *  configuration.
+ *  refer to the ti_drivers_config.c file of any of your examples to see the
+ *  SPI configuration.
  *
  *******************************************************************************
  */
@@ -439,13 +439,13 @@
 #ifndef ti_drivers_SPI__include
 #define ti_drivers_SPI__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  *  @defgroup SPI_CONTROL SPI_control command and status codes
@@ -739,7 +739,7 @@ typedef struct {
  *
  *  @sa     SPI_init()
  */
-typedef struct SPI_Config_{
+typedef struct SPI_Config_ {
     /*! Pointer to a table of driver-specific implementations of SPI APIs */
     SPI_FxnTable const *fxnTablePtr;
 

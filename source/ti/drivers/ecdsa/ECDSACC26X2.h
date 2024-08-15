@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -87,21 +87,23 @@
 #ifndef ti_drivers_ecdsa_ECDSACC26X2__include
 #define ti_drivers_ecdsa_ECDSACC26X2__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
 #include <ti/drivers/Power.h>
 #include <ti/drivers/ECDSA.h>
+#include <ti/drivers/TRNG.h>
+#include <ti/drivers/trng/TRNGCC26XX.h>
 #include <ti/drivers/cryptoutils/ecc/ECCParams.h>
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
 #include <ti/drivers/dpl/HwiP.h>
 #include <ti/drivers/dpl/SwiP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Exit the SWI and wait until an HWI call posts the SWI again */
 #define ECDSACC26X2_STATUS_FSM_RUN_PKA_OP       ECDSA_STATUS_RESERVED - 0
@@ -117,10 +119,9 @@ extern "C" {
  *  The FSM controller will increment the state counter and iterate through
  *  states until it is told to stop or restart.
  */
-typedef enum ECDSACC26X2_FsmState_ {
+typedef enum {
     ECDSACC26X2_FSM_ERROR = 0,
 
-    ECDSACC26X2_FSM_SIGN_VALIDATE_PMSN,
     ECDSACC26X2_FSM_SIGN_COMPUTE_R,
     ECDSACC26X2_FSM_SIGN_COMPUTE_R_RESULT,
     ECDSACC26X2_FSM_SIGN_R_MOD_N,
@@ -176,7 +177,7 @@ typedef int_fast16_t (*ECDSACC26X2_stateMachineFxn) (ECDSA_Handle handle);
  *  ECDSACC26X2 hardware attributes should be included in the board file
  *  and pointed to by the ECDSA_config struct.
  */
-typedef struct ECDSACC26X2_HWAttrs_ {
+typedef struct {
     /*! @brief PKA Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
@@ -190,6 +191,7 @@ typedef struct ECDSACC26X2_HWAttrs_ {
         HWI's with priority 0 ignore the HWI dispatcher to support zero-latency interrupts, thus invalidating the critical sections in this driver.
     */
     uint8_t    intPriority;
+    uint8_t    trngIntPriority;
 } ECDSACC26X2_HWAttrs;
 
 /*!
@@ -197,7 +199,11 @@ typedef struct ECDSACC26X2_HWAttrs_ {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct ECDSACC26X2_Object_ {
+typedef struct {
+    TRNG_Config                     trngConfig;
+    TRNGCC26XX_Object               trngObject;
+    TRNGCC26XX_HWAttrs              trngHwAttrs;
+    TRNG_Handle                     trngHandle;
     bool                            isOpen;
     bool                            operationInProgress;
     bool                            operationCanceled;
@@ -212,6 +218,7 @@ typedef struct ECDSACC26X2_Object_ {
     uint32_t                        resultAddress;
     uint32_t                       *scratchNumber1;
     uint32_t                       *scratchNumber2;
+    CryptoKey                       pmsnKey;
 } ECDSACC26X2_Object;
 
 #ifdef __cplusplus

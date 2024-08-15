@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  *  @file       AESCBC.h
  *
  *  @brief      AESCBC driver header
- *
- *  @warning     This is a beta API. It may change in future releases.
  *
  *  @anchor ti_drivers_AESCBC_Overview
  *  # Overview #
@@ -76,7 +74,7 @@
  *  In CBC mode, the IVs must not be predictable. Two recommended ways to
  *  generate IVs is to either:
  *
- *  - Apply the block cipher (AESECB), using the same key used with CBC,
+ *  - Apply the block cipher (AESCBC), using the same key used with CBC,
  *    to a nonce. This nonce must be unique for each key-message pair.
  *    A counter will usually suffice. If the same symmetric key is used
  *    by both parties to encrypt messages, they should agree to use a
@@ -306,15 +304,15 @@
 #ifndef ti_drivers_AESCBC__include
 #define ti_drivers_AESCBC__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * Common AESCBC status code reservation offset.
@@ -361,11 +359,29 @@ extern "C" {
  */
 #define AESCBC_STATUS_CANCELED (-3)
 
+/*!
+ *  @brief AESCBC Global configuration
+ *
+ *  The #AESCBC_Config structure contains a set of pointers used to characterize
+ *  the AESCBC driver implementation.
+ *
+ *  This structure needs to be defined before calling #AESCBC_init() and it must
+ *  not be changed thereafter.
+ *
+ *  @sa     #AESCBC_init()
+ */
+typedef struct AESCBC_Config_ {
+    /*! Pointer to a driver specific data object */
+    void               *object;
+
+    /*! Pointer to a driver specific hardware attributes structure */
+    void         const *hwAttrs;
+} AESCBC_Config;
 
 /*!
  *  @brief  A handle that is returned from an #AESCBC_open() call.
  */
-typedef struct AESCBC_Config    *AESCBC_Handle;
+typedef AESCBC_Config *AESCBC_Handle;
 
 /*!
  * @brief   The way in which CBC function calls return after performing an
@@ -419,7 +435,7 @@ typedef enum {
  */
 typedef struct {
    CryptoKey                *key;                       /*!< A previously initialized CryptoKey. */
-   const uint8_t            *input;                     /*!<
+   uint8_t                  *input;                     /*!<
                                                          *   - Encryption: The plaintext buffer to be
                                                          *     encrypted in the CBC operation.
                                                          *   - Decryption: The ciphertext to be decrypted.
@@ -450,25 +466,6 @@ typedef enum {
     AESCBC_OPERATION_TYPE_ENCRYPT = 1,
     AESCBC_OPERATION_TYPE_DECRYPT = 2,
 } AESCBC_OperationType;
-
-/*!
- *  @brief AESCBC Global configuration
- *
- *  The #AESCBC_Config structure contains a set of pointers used to characterize
- *  the AESCBC driver implementation.
- *
- *  This structure needs to be defined before calling #AESCBC_init() and it must
- *  not be changed thereafter.
- *
- *  @sa     #AESCBC_init()
- */
-typedef struct AESCBC_Config {
-    /*! Pointer to a driver specific data object */
-    void               *object;
-
-    /*! Pointer to a driver specific hardware attributes structure */
-    void         const *hwAttrs;
-} AESCBC_Config;
 
 /*!
  *  @brief  The definition of a callback function used by the AESCBC driver
@@ -557,7 +554,7 @@ void AESCBC_Params_init(AESCBC_Params *params);
  *  @sa     #AESCBC_init()
  *  @sa     #AESCBC_close()
  */
-AESCBC_Handle AESCBC_open(uint_least8_t index, AESCBC_Params *params);
+AESCBC_Handle AESCBC_open(uint_least8_t index, const AESCBC_Params *params);
 
 /*!
  *  @brief  Function to close a CBC peripheral specified by the CBC handle
@@ -636,6 +633,50 @@ int_fast16_t AESCBC_oneStepDecrypt(AESCBC_Handle handle, AESCBC_Operation *opera
  *  @retval #AESCBC_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
  */
 int_fast16_t AESCBC_cancelOperation(AESCBC_Handle handle);
+
+/**
+ *  @brief  Constructs a new AESCBC object
+ *
+ *  Unlike #AESCBC_open(), #AESCBC_construct() does not require the hwAttrs and
+ *  object to be allocated in a #AESCBC_Config array that is indexed into.
+ *  Instead, the #AESCBC_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param [in] config #AESCBC_Config describing the location of the object and hwAttrs.
+ *
+ *  @param [in] params #AESCBC_Params to configure the driver instance.
+ *
+ *  @return     Returns a #AESCBC_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+AESCBC_Handle AESCBC_construct(AESCBC_Config *config, const AESCBC_Params *params);
+
+/**
+ *  @brief Returns the IV for the next block to encrypt or decrypt.
+ *
+ *  When encrypting or decrypting messages in multiple segments, it is necessary
+ *  to save the intermediate iv to use with the next message segment.
+ *
+ *  Only call this function after a successful call to #AESCBC_oneStepEncrypt()
+ *  or #AESCBC_oneStepDecrypt() and before starting another operation with the
+ *  same handle.
+ *
+ *  @param  [in]    handle  A CBC handle returned from #AESCBC_open()
+ *
+ *  @param  [out]   iv      IV of the next block to encrypt or decrypt
+ *
+ *  @retval #AESCBC_STATUS_SUCCESS  The operation succeeded.
+ *  @retval #AESCBC_STATUS_ERROR    The operation failed.
+ */
+int_fast16_t AESCBC_getNextIv(AESCBC_Handle handle, uint8_t *iv);
 
 #ifdef __cplusplus
 }

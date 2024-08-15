@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,6 +44,7 @@
 #include <ti/drivers/aesgcm/AESGCMCC26XX.h>
 #include <ti/drivers/cryptoutils/sharedresources/CryptoResourceCC26XX.h>
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
+#include <ti/drivers/cryptoutils/utils/CryptoUtils.h>
 
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(inc/hw_ints.h)
@@ -58,10 +59,6 @@ static int_fast16_t AESGCM_startOperation(AESGCM_Handle handle,
                                           AESGCM_OperationType operationType);
 static int_fast16_t AESGCM_waitForResult(AESGCM_Handle handle);
 static void AESGCM_cleanup(AESGCM_Handle handle);
-
-/* Extern globals */
-extern const AESGCM_Config AESGCM_config[];
-extern const uint_least8_t AESGCM_count;
 
 /* Static globals */
 static bool isInitialized = false;
@@ -116,6 +113,9 @@ static void AESGCM_hwiFxn (uintptr_t arg0) {
     }
 }
 
+/*
+ *  ======== AESGCM_cleanup ========
+ */
 static void AESGCM_cleanup(AESGCM_Handle handle) {
     AESGCMCC26XX_Object *object = handle->object;
 
@@ -129,12 +129,18 @@ static void AESGCM_cleanup(AESGCM_Handle handle) {
         AESReadTag(object->operation->mac, object->operation->macLength);
     }
     else {
-        /* If we are decrypting and verifying a message, we must now verify that the provided
-         * MAC matches the one calculated in the decryption operation.
+        uint8_t computedTag[AES_BLOCK_SIZE];
+        /* If we are decrypting and verifying a message, we must now verify that
+         * the provided MAC matches the one calculated in the decryption
+         * operation.
          */
-        uint32_t verifyResult = AESVerifyTag(object->operation->mac, object->operation->macLength);
+        AESReadTag(computedTag, object->operation->macLength);
 
-        object->returnStatus = (verifyResult == AES_SUCCESS) ? object->returnStatus : AESGCM_STATUS_MAC_INVALID;
+        bool macValid = CryptoUtils_buffersMatch(computedTag,
+                                                 object->operation->mac,
+                                                 object->operation->macLength);
+
+        object->returnStatus = macValid ? object->returnStatus : AESGCM_STATUS_MAC_INVALID;
     }
 
     /* Since plaintext keys use two reserved (by convention) slots in the keystore,
@@ -169,17 +175,15 @@ void AESGCM_init(void) {
 }
 
 /*
- *  ======== AESGCM_open ========
+ *  ======== AESGCM_construct ========
  */
-AESGCM_Handle AESGCM_open(uint_least8_t index, AESGCM_Params *params) {
+AESGCM_Handle AESGCM_construct(AESGCM_Config *config, const AESGCM_Params *params) {
     AESGCM_Handle               handle;
     AESGCMCC26XX_Object        *object;
     uint_fast8_t                key;
 
-    handle = (AESGCM_Handle)&(AESGCM_config[index]);
+    handle = (AESGCM_Handle)config;
     object = handle->object;
-
-    DebugP_assert(index < AESGCM_count);
 
     key = HwiP_disable();
 
@@ -280,13 +284,11 @@ static int_fast16_t AESGCM_startOperation(AESGCM_Handle handle,
         return AESGCM_STATUS_ERROR;
     }
 
-    /* If we are in AESGCM_RETURN_BEHAVIOR_POLLING, we do not want an interrupt to trigger.
-     * AESWriteToKeyStore() disables and then re-enables the CRYPTO IRQ in the NVIC so we
-     * need to disable it before kicking off the operation.
+    /* We need to disable interrupts here to prevent a race condition in
+     * AESWaitForIRQFlags when inputLength == 0. AESWriteToKeyStore() above
+     * has enabled the crypto interrupt.
      */
-    if (object->returnBehavior == AESGCM_RETURN_BEHAVIOR_POLLING) {
-        IntDisable(INT_CRYPTO_RESULT_AVAIL_IRQ);
-    }
+    IntDisable(INT_CRYPTO_RESULT_AVAIL_IRQ);
 
     /* Power the AES sub-module of the crypto module */
     AESSelectAlgorithm(AES_ALGSEL_AES);
@@ -342,6 +344,11 @@ static int_fast16_t AESGCM_startOperation(AESGCM_Handle handle,
          */
         AESStartDMAOperation(operation->aad, operation->aadLength,  NULL, 0);
         AESWaitForIRQFlags(AES_DMA_IN_DONE | AES_DMA_BUS_ERR);
+    }
+
+    /* If we are in AESGCM_RETURN_BEHAVIOR_POLLING, we do not want an interrupt to trigger. */
+    if (object->returnBehavior != AESGCM_RETURN_BEHAVIOR_POLLING) {
+        IntEnable(INT_CRYPTO_RESULT_AVAIL_IRQ);
     }
 
     AESStartDMAOperation(operation->input, operation->inputLength, operation->output, operation->inputLength);

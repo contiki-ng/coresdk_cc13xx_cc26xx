@@ -64,17 +64,17 @@ extern "C" {
  *  @code
  *  const I2SCC26XX_HWAttrs i2sHWAttrs[CC26X2R1_LAUNCHXL_I2SCOUNT] = {
  *      {
- *         .pinSD1      =  Board_I2S_ADI,
- *         .pinSD0      =  Board_I2S_ADO,
- *         .pinSCK      =  Board_I2S_BCLK,
- *         .pinMCLK     =  Board_I2S_MCLK,
- *         .pinWS       =  Board_I2S_WCLK,
+ *         .pinSD1      =  CONFIG_I2S_ADI,
+ *         .pinSD0      =  CONFIG_I2S_ADO,
+ *         .pinSCK      =  CONFIG_I2S_BCLK,
+ *         .pinMCLK     =  CONFIG_I2S_MCLK,
+ *         .pinWS       =  CONFIG_I2S_WCLK,
  *         .intPriority =  ~0,
  *      },
  *  };
  *  @endcode
  */
-typedef struct I2SCC26XX_HWAttrs_ {
+typedef struct {
     PIN_Id                           pinSD1;                  /*!< Pin used for SD1 signal. */
     PIN_Id                           pinSD0;                  /*!< Pin used for SD0 signal. */
     PIN_Id                           pinSCK;                  /*!< Pin used for SCK signal. */
@@ -91,7 +91,7 @@ typedef struct I2SCC26XX_HWAttrs_ {
  *  This enum defines how the physical I2S interface (SD0/SD1) behaves.
  *  Do not modify.
  */
-typedef struct I2SCC26XX_DataInterface_ {
+typedef struct {
     uint8_t                         numberOfChannelsUsed;     /*!< Number of channels used on SDx. */
     I2S_ChannelConfig               channelsUsed;             /*!< List of the used channels. */
     I2S_DataInterfaceUse            interfaceConfig;          /*!< IN / OUT / UNUSED */
@@ -105,11 +105,12 @@ typedef struct I2SCC26XX_DataInterface_ {
  *  This enum defines one of the interfaces (READ or WRITE) of the I2S module.
  *  Do not modify.
  */
-typedef struct I2SCC26XX_Interface_ {
+typedef struct {
     uint16_t                        memoryStep;               /*!< Size of the memory step to access the following sample */
     uint16_t                        delay;                    /*!< Number of WS cycles to wait before starting the first transfer. This value is mostly used when performing constant latency transfers. */
     I2S_Callback                    callback;                 /*!< Pointer to callback */
     I2S_RegUpdate                   pointerSet;               /*!< Pointer on the function used to update PTR-NEXT */
+    I2S_StopInterface               stopInterface;            /*!< Pointer on the function used to stop the interface */
     I2S_Transaction                *activeTransfer;           /*!< Pointer on the ongoing transfer */
 }I2SCC26XX_Interface;
 /*! @endcond */
@@ -130,7 +131,7 @@ typedef void (*I2SCC26XX_PtrUpdate)(I2S_Handle handle, I2SCC26XX_Interface *inte
  *  I2S Object.  The application must not access any member variables
  *  of this structure!
  */
-typedef struct I2SCC26XX_Object_ {
+typedef struct {
 
     bool                            isOpen;                  /*!< To avoid multiple openings of the I2S. */
     bool                            invertWS;                /*!< WS inversion.
@@ -139,6 +140,13 @@ typedef struct I2SCC26XX_Object_ {
     uint8_t                         memorySlotLength;        /*!< Select the size of the memory used. The two options are 16 bits and 24 bits. Any value can be selected, whatever the value of ::i2sBitsPerWord.
                                                                     I2S_MEMORY_LENGTH_16BITS_CC26XX: Memory length is 16 bits.
                                                                     I2S_MEMORY_LENGTH_24BITS_CC26XX: Memory length is 24 bits.*/
+    uint8_t                         dataShift;               /*!< When dataShift is set to 0, data are read/write on the data lines from the first SCK
+                                                                  period of the half WS period to the last SCK edge of the WS half period.
+                                                                  By setting dataShift to a value different from zero, you can postpone the moment when
+                                                                  data are read/write during the WS half period.
+                                                                  For example, by setting dataShift to 1, data are read/write on the data lines from the
+                                                                  second SCK period of the half WS period to the first SCK edge of the next WS half period.
+                                                                  If no padding is activated, this corresponds to the I2S standard. */
     uint8_t                         bitsPerWord;             /*!< Number of bits per word (must be between 8 and 24 bits). */
     uint8_t                         beforeWordPadding;       /*!< Number of SCK periods between the first WS edge and the MSB of the first audio channel data transferred during the phase.*/
     uint8_t                         afterWordPadding;        /*!< Number of SCK periods between the LSB of the last audio channel data transferred during the phase and the following WS edge.*/

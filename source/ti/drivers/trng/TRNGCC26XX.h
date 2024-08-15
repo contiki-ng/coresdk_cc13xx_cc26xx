@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,30 +34,35 @@
  *
  *  @brief      TRNG driver implementation for the CC26XX family
  *
- * @warning     This is a beta API. It may change in future releases.
- *
  *  This file should only be included in the board file to fill the TRNG_config
  *  struct.
-
+ *
+ *  # Hardware
+ *
  *  The CC26XX family has a dedicated hardware TRNG based on sampling multiple
  *  free running oscillators. With all FROs enabled, the TRNG hardware generates
  *  64 bits of entropy approximately every 5ms. The driver implementation
  *  chains multiple 64-bit entropy generation operations together to generate
  *  an arbitrary amount of entropy.
  *
- *  The driver implementation does not perform runtime checks for most input parameters.
- *  Only values that are likely to have a stochastic element to them are checked (such
- *  as whether a driver is already open). Higher input paramter validation coverage is
- *  achieved by turning on assertions when compiling the driver.
+ *  # Behaviour
  *
+ *  The driver keeps a global pool of entropy available to service any requests
+ *  immediately. If the pool is not sufficiently large or is too depleted to
+ *  service a request, entropy will be generated until the request is serviced.
+ *  If there is an ongoing TRNG request that the hardware is generating entropy
+ *  for, the driver will queue any other requests and work them off in FIFO
+ *  order.
+ *
+ *  Requests issued by driver instances with polling return behaviour will
+ *  preempt any executing requests and be serviced immediately.
+ *
+ *  After the request queue is emptied, the driver will start an asynchronous
+ *  operation in the background to refill the depleted entropy pool.
  */
 
 #ifndef ti_drivers_TRNG_TRNGCC26XX__include
 #define ti_drivers_TRNG_TRNGCC26XX__include
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -67,8 +72,11 @@ extern "C" {
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
 #include <ti/drivers/dpl/HwiP.h>
-#include <ti/drivers/dpl/SwiP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*! @brief Minimum random samples for each entropy generation call */
 #define TRNGCC26XX_SAMPLES_PER_CYCLE_MIN        256
@@ -78,14 +86,27 @@ extern "C" {
 #define TRNGCC26XX_SAMPLES_PER_CYCLE_DEFAULT    240000
 /*! @brief Maximum random samples for each entropy generation call */
 #define TRNGCC26XX_SAMPLES_PER_CYCLE_MAX        16777216
-/*! @brief Minimum number of bytes provided by the TRNG hardware
- *         in one go. Smaller amounts can by requested in driver
- *         calls but the full number will always be generated.
- *         Part of the generated entropy will simply not be copied
- *         back to the target buffer if the requested length is not
- *         a multiple of TRNGCC26XX_MIN_BYTES_PER_ISR.
+/*! @brief Minimum number of bytes provided by the TRNG hardware in one go.
+ *
+ *  Smaller amounts can by requested in driver
+ *  calls but the full number will always be generated.
+ *  Part of the generated entropy will simply not be copied
+ *  back to the target buffer if the requested length is not
+ *  a multiple of TRNGCC26XX_MIN_BYTES_PER_ISR.
  */
-#define TRNGCC26XX_MIN_BYTES_PER_ITERATION      8
+#define TRNGCC26XX_MIN_BYTES_PER_ITERATION      (2 * sizeof(uint32_t))
+
+/*! @brief Default TRNGCC26XX entropy pool size in 64-bit elements
+ *
+ *  By default, the entropy pool is sized to immediately fulfill a 256-bit
+ *  entropy generation request. If we assume that the TRNG is used infrequently,
+ *  this should greatly decrease the latency of <= 256-bit requests.
+ *  This value may be overriden by defining it at the project level and
+ *  recompiling the driver.
+ */
+#ifndef TRNGCC26XX_ENTROPY_POOL_SIZE
+#define TRNGCC26XX_ENTROPY_POOL_SIZE (32 / sizeof(uint64_t))
+#endif
 
 /*!
  *  @brief      TRNGCC26XX Hardware Attributes
@@ -93,7 +114,7 @@ extern "C" {
  *  TRNG26X0 hardware attributes should be included in the board file
  *  and pointed to by the TRNG_config struct.
  */
-typedef struct TRNGCC26XX_HWAttrs {
+typedef struct {
     /*! @brief Crypto Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
@@ -121,23 +142,32 @@ typedef struct TRNGCC26XX_HWAttrs {
     uint32_t   samplesPerCycle;
 } TRNGCC26XX_HWAttrs;
 
+/*! \cond Internal APIs */
+
 /*!
- *  @brief      TRNGCC26XX Object
- *
  *  The application must not access any member variables of this structure!
  */
-typedef struct TRNGCC26XX_Object {
-    bool                            isOpen;
-    TRNG_ReturnBehavior             returnBehavior;
-    int_fast16_t                    returnStatus;
+typedef struct {
+    List_Elem                       listElement;        /* Must start with a List_Elem
+                                                         * to allow casting of List_Elem
+                                                         * pointer returned by List APIs
+                                                         * to TRNGCC26XX_Object pointers.
+                                                         */
+    TRNG_Handle                     handle;
+    TRNG_CallbackFxn                callbackFxn;
+    uint32_t                        samplesPerCycle;
+    CryptoKey                       *entropyKey;
+    uint8_t                         *entropyBuffer;
+    uint32_t                        semaphoreTimeout;
     size_t                          entropyGenerated;
     size_t                          entropyRequested;
-    uint32_t                        semaphoreTimeout;
-    uint8_t                         *entropyBuffer;
-    CryptoKey                       *entropyKey;
-    uint32_t                        samplesPerCycle;
-    TRNG_CallbackFxn                callbackFxn;
+    int_fast16_t                    returnStatus;
+    TRNG_ReturnBehavior             returnBehavior;
+    bool                            isOpen;
+    SemaphoreP_Struct               operationSemaphore;
 } TRNGCC26XX_Object;
+
+/*! \endcond */
 
 /*!
  *  @brief  Sets the number of entropy generation cycles before
@@ -153,27 +183,6 @@ typedef struct TRNGCC26XX_Object {
  *  @sa     TRNG_open()
  */
 extern int_fast16_t TRNGCC26XX_setSamplesPerCycle(TRNG_Handle handle, uint32_t samplesPerCycle);
-
-/*
- * This function exists for internal use only. It is not a
- * top-level function for now.
- *
- * Use it like this:
- *
- * TRNGCC26XX_Object object = {0};
- * const TRNGCC26XX_HWAttrs hwAttrs = {
- *     .intPriority = 0xFF
- * };
- *
- * TRNG_Config config = {
- *     .object = &object,
- *     .hwAttrs = &hwAttrs
- * };
- *
- * TRNG_Handle handle = TRNG_construct(&config, ...);
- *
- */
-extern TRNG_Handle TRNGCC26XX_construct(TRNG_Config *config, const TRNG_Params *params);
 
 #ifdef __cplusplus
 }

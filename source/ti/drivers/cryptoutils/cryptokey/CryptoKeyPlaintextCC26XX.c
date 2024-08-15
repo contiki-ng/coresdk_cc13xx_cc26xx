@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -37,18 +37,47 @@
 #include <string.h>
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKeyPlaintext.h>
+#include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
-/*!
- *  \brief Initializes a CryptoKey type
- *
- *
- *  @param[in]     keyHandle   Pointer to a CryptoKey which will be initialized to type CryptoKey_PLAINTEXT
- *                             and ready for use
- *  @param[in]     key         Pointer to key value
- *  @param[in]     keyLength   Length of key, in bytes
- *
+/*
+ *  ======== CryptoKey_getCryptoKeyType ========
  */
-int_fast16_t CryptoKeyPlaintext_initKey(CryptoKey *keyHandle, uint8_t *key, size_t keyLength){
+int_fast16_t CryptoKey_getCryptoKeyType(CryptoKey *keyHandle,
+                                        CryptoKey_Encoding *keyType) {
+    *keyType = keyHandle->encoding;
+
+    return CryptoKey_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== CryptoKey_isBlank ========
+ */
+int_fast16_t CryptoKey_isBlank(CryptoKey *keyHandle, bool *isBlank) {
+    if (keyHandle->encoding == CryptoKey_BLANK_PLAINTEXT) {
+        *isBlank = true;
+    }
+    else {
+        *isBlank = false;
+    }
+
+    return CryptoKey_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== CryptoKey_markAsBlank ========
+ */
+int_fast16_t CryptoKey_markAsBlank(CryptoKey *keyHandle) {
+    keyHandle->encoding = CryptoKey_BLANK_PLAINTEXT;
+
+    return CryptoKey_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== CryptoKeyPlaintext_initKey ========
+ */
+int_fast16_t CryptoKeyPlaintext_initKey(CryptoKey *keyHandle,
+                                        uint8_t *key,
+                                        size_t keyLength){
     keyHandle->encoding = CryptoKey_PLAINTEXT;
     keyHandle->u.plaintext.keyMaterial = key;
     keyHandle->u.plaintext.keyLength = keyLength;
@@ -56,47 +85,56 @@ int_fast16_t CryptoKeyPlaintext_initKey(CryptoKey *keyHandle, uint8_t *key, size
     return CryptoKey_STATUS_SUCCESS;
 }
 
-
-/*!
- *  \brief Initializes an empty plaintext CryptoKey type
- *
- *
- *  @param[in]     keyHandle    Pointer to a CryptoKey which will be initialized to type
- *                              CryptoKey_BLANK_PLAINTEXT
- *  @param[in]     keyLocation  Pointer to location where plaintext key can be stored
- *  @param[in]     keyLength    Length of array allocated at key, in bytes
- *
+/*
+ *  ======== CryptoKeyPlaintext_initBlankKey ========
  */
-int_fast16_t CryptoKeyPlaintext_initBlankKey(CryptoKey *keyHandle, uint8_t *keyLocation, size_t keyLength){
-    return CryptoKeyPlaintext_initKey(keyHandle, keyLocation, keyLength);
+int_fast16_t CryptoKeyPlaintext_initBlankKey(CryptoKey *keyHandle,
+                                             uint8_t *keyLocation,
+                                             size_t keyLength){
+
+    keyHandle->encoding = CryptoKey_BLANK_PLAINTEXT;
+    keyHandle->u.plaintext.keyMaterial = keyLocation;
+    keyHandle->u.plaintext.keyLength = keyLength;
+
+    return CryptoKey_STATUS_SUCCESS;
 }
 
-
-
-/*!
- * \brief Sets the CryptoKey.keyLocation pointer
- *
- *  Updates the key location for a plaintext CryptoKey.
- *  Does not modify data at the pointer location.
- *
- *  @param[in]      keyHandle   Pointer to a plaintext CryptoKey who's key data pointer will be modified
- *  @param[in]      location    Pointer to key data location
+/*
+ *  ======== CryptoKeyPlaintext_setKeyLocation ========
  */
-int_fast16_t CryptoKeyPlaintext_setKeyLocation(CryptoKey *keyHandle, uint8_t *location){
+int_fast16_t CryptoKeyPlaintext_setKeyLocation(CryptoKey *keyHandle,
+                                               uint8_t *location){
     keyHandle->u.plaintext.keyMaterial = location;
 
     return CryptoKey_STATUS_SUCCESS;
 }
 
-
-/*!
- *  \brief Gets the length of a plaintext key
- *
- *  @param[in]      keyHandle   Pointer to a plaintext CryptoKey
- *  @param[in]      length      Length value will be updated to CryptoKey length, in bytes
+/*
+ *  ======== CryptoKeyPlaintext_setKeyLocation ========
  */
-int_fast16_t CryptoKeyPlaintext_getKeyLength(CryptoKey *keyHandle, size_t *length){
+int_fast16_t CryptoKeyPlaintext_getKeyLocation(CryptoKey *keyHandle,
+                                               uint8_t **location){
+    *location = keyHandle->u.plaintext.keyMaterial;
+
+    return CryptoKey_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== CryptoKeyPlaintext_getKeyLength ========
+ */
+int_fast16_t CryptoKeyPlaintext_getKeyLength(CryptoKey *keyHandle,
+                                             size_t *length){
     *length = keyHandle->u.plaintext.keyLength;
+
+    return CryptoKey_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== CryptoKeyPlaintext_setKeyLength ========
+ */
+int_fast16_t CryptoKeyPlaintext_setKeyLength(CryptoKey *keyHandle,
+                                             size_t length) {
+    keyHandle->u.plaintext.keyLength = length;
 
     return CryptoKey_STATUS_SUCCESS;
 }

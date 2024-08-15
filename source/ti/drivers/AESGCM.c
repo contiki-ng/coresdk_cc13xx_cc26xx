@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,7 +41,12 @@
 #include <string.h>
 
 #include <ti/drivers/AESGCM.h>
+#include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+/* Extern globals (board file) */
+extern const AESGCM_Config AESGCM_config[];
+extern const uint_least8_t AESGCM_count;
 
 const AESGCM_Params AESGCM_defaultParams = {
     .returnBehavior = AESGCM_RETURN_BEHAVIOR_BLOCKING,
@@ -55,6 +60,16 @@ const AESGCM_Params AESGCM_defaultParams = {
  */
 void AESGCM_Params_init(AESGCM_Params *params){
     *params = AESGCM_defaultParams;
+}
+
+/*
+ *  ======== AESGCM_open ========
+ */
+AESGCM_Handle AESGCM_open(uint_least8_t index, const AESGCM_Params *params) {
+    DebugP_assert(index < AESGCM_count);
+
+    AESGCM_Config *config = (AESGCM_Config*)&AESGCM_config[index];
+    return AESGCM_construct(config, params);
 }
 
 /*

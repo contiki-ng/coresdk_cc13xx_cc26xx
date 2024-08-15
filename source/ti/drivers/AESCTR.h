@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  * @file       AESCTR.h
  *
  * @brief      AESCTR driver header
- *
- * @warning    This is a beta API. It may change in future releases.
  *
  * @anchor ti_drivers_AESCTR_Overview
  * <h3> Overview </h3>
@@ -411,7 +409,7 @@ typedef enum {
  */
 typedef struct {
    const CryptoKey          *key;                       /*!< A previously initialized CryptoKey. */
-   const uint8_t            *input;                     /*!<
+   uint8_t                  *input;                     /*!<
                                                          *   - Encryption: The plaintext buffer to be
                                                          *     encrypted in the CTR operation.
                                                          *   - Decryption: The ciphertext to be decrypted.
@@ -449,7 +447,7 @@ typedef enum {
  *
  *  @sa     #AESCTR_init()
  */
-typedef struct AESCTR_Config {
+typedef struct {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -628,6 +626,31 @@ int_fast16_t AESCTR_oneStepDecrypt(AESCTR_Handle handle, AESCTR_Operation *opera
  *  @retval #AESCTR_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
  */
 int_fast16_t AESCTR_cancelOperation(AESCTR_Handle handle);
+
+/**
+ *  @brief  Constructs a new AESCTR object
+ *
+ *  Unlike #AESCTR_open(), #AESCTR_construct() does not require the hwAttrs and
+ *  object to be allocated in a #AESCTR_Config array that is indexed into.
+ *  Instead, the #AESCTR_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #AESCTR_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #AESCTR_Params to configure the driver instance.
+ *
+ *  @return        Returns a #AESCTR_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+AESCTR_Handle AESCTR_construct(AESCTR_Config *config, const AESCTR_Params *params);
 
 #ifdef __cplusplus
 }

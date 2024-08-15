@@ -34,8 +34,6 @@
  *
  *  @brief      TRNG driver header
  *
- *  @warning    This is a beta API. It may change in future releases.
- *
  *  @anchor ti_drivers_TRNG_Overview
  *  # Overview #
  *  The True Random Number Generator (TRNG) module generates numbers of variable
@@ -209,15 +207,15 @@
 #ifndef ti_drivers_TRNG__include
 #define ti_drivers_TRNG__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * Common TRNG status code reservation offset.
@@ -260,9 +258,28 @@ extern "C" {
 #define TRNG_STATUS_RESOURCE_UNAVAILABLE (-2)
 
 /*!
+ *  @brief TRNG Global configuration
+ *
+ *  The TRNG_Config structure contains a set of pointers used to characterize
+ *  the TRNG driver implementation.
+ *
+ *  This structure needs to be defined before calling TRNG_init() and it must
+ *  not be changed thereafter.
+ *
+ *  @sa     TRNG_init()
+ */
+typedef struct {
+    /*! Pointer to a driver specific data object */
+    void               *object;
+
+    /*! Pointer to a driver specific hardware attributes structure */
+    void         const *hwAttrs;
+} TRNG_Config;
+
+/*!
  *  @brief  A handle that is returned from a TRNG_open() call.
  */
-typedef struct TRNG_Config  *TRNG_Handle;
+typedef TRNG_Config  *TRNG_Handle;
 
 /*!
  * @brief   The way in which TRNG function calls return after generating
@@ -301,25 +318,6 @@ typedef enum {
                                              *   are available after the function returns.
                                              */
 } TRNG_ReturnBehavior;
-
-/*!
- *  @brief TRNG Global configuration
- *
- *  The TRNG_Config structure contains a set of pointers used to characterize
- *  the TRNG driver implementation.
- *
- *  This structure needs to be defined before calling TRNG_init() and it must
- *  not be changed thereafter.
- *
- *  @sa     TRNG_init()
- */
-typedef struct TRNG_Config {
-    /*! Pointer to a driver specific data object */
-    void               *object;
-
-    /*! Pointer to a driver specific hardware attributes structure */
-    void         const *hwAttrs;
-} TRNG_Config;
 
 /*!
  *  @brief  The definition of a callback function used by the TRNG driver
@@ -437,7 +435,30 @@ void TRNG_close(TRNG_Handle handle);
  */
 int_fast16_t TRNG_generateEntropy(TRNG_Handle handle, CryptoKey *entropy);
 
-
+/**
+ *  @brief  Constructs a new TRNG object
+ *
+ *  Unlike #TRNG_open(), #TRNG_construct() does not require the hwAttrs and
+ *  object to be allocated in a #TRNG_Config array that is indexed into.
+ *  Instead, the #TRNG_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #TRNG_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #TRNG_Params to configure the driver instance.
+ *
+ *  @return        Returns a #TRNG_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+TRNG_Handle TRNG_construct(TRNG_Config *config, const TRNG_Params *params);
 
 
 #ifdef __cplusplus

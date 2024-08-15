@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -71,7 +71,7 @@ ALLOCATE_CONTROL_TABLE_ENTRY(dmaSpi0RxControlTableEntry, UDMA_CHAN_SSI0_RX);
 ALLOCATE_CONTROL_TABLE_ENTRY(dmaSpi1TxControlTableEntry, UDMA_CHAN_SSI1_TX);
 ALLOCATE_CONTROL_TABLE_ENTRY(dmaSpi1RxControlTableEntry, UDMA_CHAN_SSI1_RX);
 
-/* SPICC26XX functions */
+/* SPICC26XXDMA functions */
 void         SPICC26XXDMA_close(SPI_Handle handle);
 int_fast16_t SPICC26XXDMA_control(SPI_Handle handle, uint_fast16_t cmd, void *arg);
 void         SPICC26XXDMA_init(SPI_Handle handle);
@@ -79,7 +79,7 @@ SPI_Handle   SPICC26XXDMA_open(SPI_Handle handle, SPI_Params *params);
 bool         SPICC26XXDMA_transfer(SPI_Handle handle, SPI_Transaction *transaction);
 void         SPICC26XXDMA_transferCancel(SPI_Handle handle);
 
-/* SPICC26XX internal functions */
+/* SPICC26XXDMA internal functions */
 static void SPICC26XXDMA_transferCallback(SPI_Handle handle, SPI_Transaction *msg);
 static void SPICC26XXDMA_csnCallback(PIN_Handle handle, PIN_Id pinId);
 static void SPICC26XXDMA_initHw(SPI_Handle handle);
@@ -157,11 +157,11 @@ static inline void threadSafeConstraintSet(uint32_t txBufAddr, SPICC26XXDMA_Obje
     key = HwiP_disable();
 
     if (!object->spiPowerConstraint) {
-        /* Ensure flash is available if TX buffer is in flash. Flash starts with 0x0..*/
+        /* Ensure flash is available if TX buffer is in flash. Flash starts
+         * with 0x0..*/
         if (((txBufAddr & 0xF0000000) == 0x0) && (txBufAddr)) {
             Power_setConstraint(PowerCC26XX_NEED_FLASH_IN_IDLE);
-            Power_setConstraint(PowerCC26XX_DISALLOW_XOSC_HF_SWITCHING);
-        }
+            Power_setConstraint(PowerCC26XX_DISALLOW_XOSC_HF_SWITCHING); }
         /* Set constraints to guarantee operation */
         Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
@@ -312,11 +312,11 @@ void SPICC26XXDMA_close(SPI_Handle handle)
  *  @param  handle A SPI handle returned from SPICC26XXDMA_open()
  *
  *  @param  cmd  The command to execute, supported commands are:
- *              | Command                               | Description             |
- *              |-------------------------------------- |-------------------------|
- *              | ::SPICC26XXDMA_CMD_RETURN_PARTIAL_ENABLE  | Enable RETURN_PARTIAL   |
- *              | ::SPICC26XXDMA_CMD_RETURN_PARTIAL_DISABLE | Disable RETURN_PARTIAL  |
- *              | ::SPICC26XXDMA_CMD_SET_CSN_PIN            | Re-configure chip select pin |
+ *  | Command                                   | Description            |
+ *  |------------------------------------------ |------------------------|
+ *  | ::SPICC26XXDMA_CMD_RETURN_PARTIAL_ENABLE  | Enable RETURN_PARTIAL  |
+ *  | ::SPICC26XXDMA_CMD_RETURN_PARTIAL_DISABLE | Disable RETURN_PARTIAL |
+ *  | ::SPICC26XXDMA_CMD_SET_CSN_PIN            | Re-configure CS pin    |
  *
  *  @param  *arg  Pointer to command arguments.
  *
@@ -340,7 +340,6 @@ int_fast16_t SPICC26XXDMA_control(SPI_Handle handle, uint_fast16_t cmd, void *ar
     switch(cmd) {
         case SPICC26XXDMA_CMD_RETURN_PARTIAL_ENABLE:
             /* Enable RETURN_PARTIAL if slave mode is enabled */
-
             if(object->mode == SPI_SLAVE){
                 object->returnPartial = true;
                 ret = SPI_STATUS_SUCCESS;
@@ -360,7 +359,8 @@ int_fast16_t SPICC26XXDMA_control(SPI_Handle handle, uint_fast16_t cmd, void *ar
         case SPICC26XXDMA_CMD_SET_CSN_PIN:
             pinId = ((*(PIN_Id *) arg));
 
-            /* Configure CSN pin and remap PIN_ID to new CSN pin specified by arg */
+            /* Configure CSN pin and remap PIN_ID to new CSN pin specified by
+             * arg */
             if (object->mode == SPI_SLAVE) {
                 pinConfig = PIN_INPUT_EN | PIN_PULLUP | pinId;
             }
@@ -374,7 +374,8 @@ int_fast16_t SPICC26XXDMA_control(SPI_Handle handle, uint_fast16_t cmd, void *ar
                     /* Configure pin mux */
                     PINCC26XX_setMux(object->pinHandle, pinId,  (hwAttrs->baseAddr == SSI0_BASE ? IOC_PORT_MCU_SSI0_FSS : IOC_PORT_MCU_SSI1_FSS));
 
-                    /* Remove old pin and revert to default setting specified in the board file */
+                    /* Remove old pin and revert to default setting specified
+                     * in the board file */
                     PIN_remove(object->pinHandle, object->csnPin);
 
                     /* Keep track of current CSN pin */
@@ -385,8 +386,10 @@ int_fast16_t SPICC26XXDMA_control(SPI_Handle handle, uint_fast16_t cmd, void *ar
                 }
             }
             else {
-                /* We want to use software ctrl CSN. Hence, undo any prior hardware CSN pin muxing */
-                /* Remove old pin and revert to default setting specified in the board file (implicitly sets IO muxing to GPIO mode) */
+                /* We want to use software ctrl CSN. Hence, undo any prior
+                 * hardware CS pin muxing Remove old pin and revert to default
+                 * setting specified in the board file (implicitly sets IO
+                 * muxing to GPIO mode) */
                 PIN_remove(object->pinHandle, object->csnPin);
 
                 /* Keep track of current CSN pin */
@@ -408,7 +411,7 @@ int_fast16_t SPICC26XXDMA_control(SPI_Handle handle, uint_fast16_t cmd, void *ar
 
 /*
  *  ======== SPICC26XXDMA_configDMA ========
- *  This functions configures the transmit and receive DMA channels for a given
+ *  This function configures the transmit and receive DMA channels for a given
  *  SPI_Handle and SPI_Transaction
  *
  *  @pre    Function assumes that the handle and transaction is not NULL
@@ -436,8 +439,8 @@ static void SPICC26XXDMA_configDMA(SPICC26XXDMA_Object *object,
     /* Calculate the number of bytes for the transfer */
     numberOfBytes = ((uint16_t) object->currentXferAmt) << (object->frameSize);
 
-    /* Setup RX side */
-    /* Set pointer to Rx control table entry */
+    /* Setup RX side
+     * Set pointer to Rx control table entry */
     dmaControlTableEntry = (hwAttrs->baseAddr == SSI0_BASE ? &dmaSpi0RxControlTableEntry : &dmaSpi1RxControlTableEntry);
     if (object->currentTransaction->rxBuf) {
         dmaControlTableEntry->ui32Control = dmaRxConfig[object->frameSize];
@@ -459,8 +462,8 @@ static void SPICC26XXDMA_configDMA(SPICC26XXDMA_Object *object,
     dmaControlTableEntry->pvSrcEndAddr = (void *)(hwAttrs->baseAddr + SSI_O_DR);
     dmaControlTableEntry->ui32Control |= UDMACC26XX_SET_TRANSFER_SIZE((uint16_t) object->currentXferAmt);
 
-    /* Setup TX side */
-    /* Set pointer to Tx control table entry */
+    /* Setup TX side
+     * Set pointer to Tx control table entry */
     dmaControlTableEntry = (hwAttrs->baseAddr == SSI0_BASE ? &dmaSpi0TxControlTableEntry : &dmaSpi1TxControlTableEntry);
     if (object->currentTransaction->txBuf) {
         dmaControlTableEntry->ui32Control = dmaTxConfig[object->frameSize];
@@ -486,7 +489,8 @@ static void SPICC26XXDMA_configDMA(SPICC26XXDMA_Object *object,
     /* Enable the channels */
     UDMACC26XX_channelEnable(object->udmaHandle, (hwAttrs->rxChannelBitMask) | (hwAttrs->txChannelBitMask));
 
-    /* Enable the required DMA channels in the SPI module to start the transaction */
+    /* Enable the required DMA channels in the SPI module to start the
+     * transaction */
     SSIDMAEnable(hwAttrs->baseAddr, SSI_DMA_TX | SSI_DMA_RX);
 }
 
@@ -524,7 +528,8 @@ static void SPICC26XXDMA_hwiFxn (uintptr_t arg) {
             /* Otherwise disable the SPI and DMA modules and flush FIFOs */
             SSIDisable(hwAttrs->baseAddr);
 
-            /* Disable SPI TX/RX DMA and clear DMA done interrupt just in case it finished */
+            /* Disable SPI TX/RX DMA and clear DMA done interrupt just in
+             * case it finished */
             SSIDMADisable(hwAttrs->baseAddr, SSI_DMA_TX | SSI_DMA_RX);
             UDMACC26XX_clearInterrupt(object->udmaHandle, (hwAttrs->rxChannelBitMask) | (hwAttrs->txChannelBitMask));
 
@@ -537,9 +542,10 @@ static void SPICC26XXDMA_hwiFxn (uintptr_t arg) {
          * Determine if the TX DMA channel has completed... In SPI slave mode
          * this interrupt may occur immediately (without the RX DMA channel).
          *
-         * All transfers will set up both TX and RX DMA channels and both will finish.
-         * Even if the transaction->rxBuf == NULL, it will setup a dummy RX transfer to
-         * a scratch memory location which is then discarded.
+         * All transfers will set up both TX and RX DMA channels and both will
+         * finish.  Even if the transaction->rxBuf == NULL, it will setup a
+         * dummy RX transfer to a scratch memory location which is then
+         * discarded.
          */
         if (UDMACC26XX_channelDone(object->udmaHandle, hwAttrs->txChannelBitMask)) {
             /* Disable SPI TX DMA and clear DMA done interrupt. */
@@ -548,15 +554,17 @@ static void SPICC26XXDMA_hwiFxn (uintptr_t arg) {
         }
 
         /*
-         * Determine if the RX DMA channel has completed... In slave mode this interrupt
-         * occurrence depends on when the SPI master starts sending data.
+         * Determine if the RX DMA channel has completed... In slave mode this
+         * interrupt occurrence depends on when the SPI master starts sending
+         * data.
          */
         if (UDMACC26XX_channelDone(object->udmaHandle, hwAttrs->rxChannelBitMask)) {
             /* Disable SPI RX DMA and clear DMA done interrupt. */
             SSIDMADisable(hwAttrs->baseAddr, SSI_DMA_RX);
             UDMACC26XX_clearInterrupt(object->udmaHandle, hwAttrs->rxChannelBitMask);
 
-            /* Post SWI to handle remaining clean up and invocation of callback */
+            /* Post SWI to handle remaining clean up and invocation of
+             * callback */
             SwiP_post(&(object->swi));
         }
     }
@@ -564,9 +572,8 @@ static void SPICC26XXDMA_hwiFxn (uintptr_t arg) {
 
 /*
  *  ======== SPICC26XXDMA_swiFxn ========
- *  SWI ISR for the SPI when we use the UDMA
- *  Determine if the RX DMA channel has completed... In slave mode this interrupt
- *  occurrence depends on when the SPI master starts sending data.
+ *  SWI function is called by the HWI after the DMA has finished one job, or
+ *  is called by transferCancel.
  */
 static void SPICC26XXDMA_swiFxn (uintptr_t arg0, uintptr_t arg1) {
     SPI_Transaction            *transaction;
@@ -579,10 +586,11 @@ static void SPICC26XXDMA_swiFxn (uintptr_t arg0, uintptr_t arg1) {
 
     /* Check if there is an active transaction */
     if (object->currentTransaction == NULL) {
-        /* If the currentTransaction is NULL, this SWI was posted already by either the ISR or transferCancel.
-         * Do nothing and return.
-         * There is no need to disable interrupts and set up a temporary pointer for this fxn. The only place
-         * currentTransaction can be set after initialization is in this function and this swi cannot preempt
+        /* If the currentTransaction is NULL, this SWI was posted already by
+         * either the ISR or transferCancel.  Do nothing and return.  There is
+         * no need to disable interrupts and set up a temporary pointer for
+         * this fxn. The only place currentTransaction can be set after
+         * initialization is in this function and this swi cannot preempt
          * itself to cause a race condition in the middle of it.
          */
         return;
@@ -618,7 +626,7 @@ static void SPICC26XXDMA_swiFxn (uintptr_t arg0, uintptr_t arg1) {
 }
 
 /*
- *  ======== SPICC26XXDMA_flushTxFifo ========
+ *  ======== SPICC26XXDMA_flushFifos ========
  */
 void SPICC26XXDMA_flushFifos(SPI_Handle handle) {
 
@@ -677,8 +685,8 @@ void SPICC26XXDMA_init(SPI_Handle handle)
  *          will operate.
  *
  *  The function will set a dependency on it power domain, i.e. power up the
- *  module and enable the clock. The IOs are allocated. Neither the SPI nor UDMA module
- *  will be enabled.
+ *  module and enable the clock. The IOs are allocated. Neither the SPI nor
+ *  UDMA module will be enabled.
  *
  *  @pre    SPI controller has been initialized.
  *          Calling context: Task
@@ -744,21 +752,24 @@ SPI_Handle SPICC26XXDMA_open(SPI_Handle handle, SPI_Params *params)
     /* Configure the hardware module */
     SPICC26XXDMA_initHw(handle);
 
-    /* CSN is initialized using hwAttrs initially, but can be re-configured later */
+    /* CSN is initialized using hwAttrs initially, but can be re-configured
+     * later */
     object->csnPin = hwAttrs->csnPin;
 
-    /* Configure IOs after hardware has been initialized so that IOs aren't */
-    /* toggled unnecessary and make sure it was successful */
+    /* Configure IOs after hardware has been initialized so that IOs aren't
+     * toggled unnecessary and make sure it was successful */
     if (!SPICC26XXDMA_initIO(handle)) {
         /* Trying to use SPI driver when some other driver or application
-        *  has already allocated these pins, error! */
+         * has already allocated these pins, error! */
 
-        /* Release power dependency - i.e. potentially power down serial domain. */
+        /* Release power dependency
+         * i.e. potentially power down serial domain. */
         Power_releaseDependency(hwAttrs->powerMngrId);
 
         object->isOpen = false;
 
-        /* Signal back to application that SPI driver was not successfully opened */
+        /* Signal back to application that SPI driver was not
+         * successfully opened */
         return (NULL);
     }
 
@@ -777,7 +788,8 @@ SPI_Handle SPICC26XXDMA_open(SPI_Handle handle, SPI_Params *params)
     /* Declare the dependency on the UDMA driver */
     object->udmaHandle = UDMACC26XX_open();
 
-    /* Configure PIN driver for CSN callback in optional RETURN_PARTIAL slave mode */
+    /* Configure PIN driver for CSN callback in optional RETURN_PARTIAL
+     * slave mode */
     if (object->mode == SPI_SLAVE) {
         PIN_registerIntCb(object->pinHandle, SPICC26XXDMA_csnCallback);
         PIN_setUserArg(object->pinHandle, (uintptr_t) handle);
@@ -806,20 +818,20 @@ SPI_Handle SPICC26XXDMA_open(SPI_Handle handle, SPI_Params *params)
     return (handle);
 }
 
-/*!
- *  @brief  Function for transferring using the SPI interface.
+/*!  @brief  Function for transferring using the SPI interface.
  *
- *  The function will enable the SPI and UDMA modules and disallow
- *  the device from going into standby.
+ *  The function will enable the SPI and UDMA modules and disallow the device
+ *  from going into standby.
  *
- *  In ::SPI_MODE_BLOCKING, SPI_transfer will block task execution until the transfer
+ *  In ::SPI_MODE_BLOCKING, SPI_transfer will block task execution until the
+ *  transfer has ended.
+ *
+ *  In ::SPI_MODE_CALLBACK, SPI_transfer does not block task execution, but
+ *  calls a callback function specified by transferCallback when the transfer
  *  has ended.
  *
- *  In ::SPI_MODE_CALLBACK, SPI_transfer does not block task execution, but calls a
- *  callback function specified by transferCallback when the transfer has ended.
- *
- *  @pre    SPICC26XXDMA_open() has to be called first.
- *          Calling context: Hwi and Swi (only if using ::SPI_MODE_CALLBACK), Task
+ *  @pre    SPICC26XXDMA_open() has to be called first.  Calling context: Hwi
+ *  and Swi (only if using ::SPI_MODE_CALLBACK), Task
  *
  *  @param  handle A SPI handle returned from SPICC26XXDMA_open()
  *
@@ -894,9 +906,11 @@ bool SPICC26XXDMA_transfer(SPI_Handle handle, SPI_Transaction *transaction)
     /*
      * Polling transfer if BLOCKING mode & transaction->count < threshold
      * Slaves not allowed to use polling unless timeout is disabled
+     * Polling not allowed with returnPartial mode
      */
     if (object->transferMode == SPI_MODE_BLOCKING &&
         transaction->count < hwAttrs->minDmaTransferSize &&
+        object->returnPartial == false &&
         (object->mode == SPI_MASTER ||
         object->transferTimeout == SPI_WAIT_FOREVER)) {
         HwiP_restore(key);
@@ -925,7 +939,8 @@ bool SPICC26XXDMA_transfer(SPI_Handle handle, SPI_Transaction *transaction)
     if (object->transferMode == SPI_MODE_BLOCKING) {
         if (SemaphoreP_OK != SemaphoreP_pend(&(object->transferComplete),
                     object->transferTimeout)) {
-            /* Mark the transfer as failed. Otherwise SPICC26XXDMA_transferCancel will set it to canceled. */
+            /* Mark the transfer as failed. Otherwise
+             * SPICC26XXDMA_transferCancel will set it to canceled. */
             if (object->currentTransaction->status == SPI_TRANSFER_STARTED) {
                 object->currentTransaction->status = SPI_TRANSFER_FAILED;
             }
@@ -943,8 +958,8 @@ bool SPICC26XXDMA_transfer(SPI_Handle handle, SPI_Transaction *transaction)
 }
 
 /*!
- *  @brief Function that cancels a SPI transfer. Will disable SPI and UDMA modules
- *         and allow standby.
+ *  @brief Function that cancels a SPI transfer. Will disable SPI and UDMA
+ *  modules and allow standby.
  *
  *  @pre    SPICC26XXDMA_open() has to be called first.
  *          Calling context: Task
@@ -956,19 +971,29 @@ void SPICC26XXDMA_transferCancel(SPI_Handle handle) {
     SPICC26XXDMA_HWAttrs const  *hwAttrs;
     SPI_Transaction             *transaction;
     volatile tDMAControlTable   *dmaControlTableEntry;
+    int_fast32_t                tempCount;
 
     /* Get the pointer to the object and hwAttrs */
     object = handle->object;
     hwAttrs = handle->hwAttrs;
 
-    /* Disable interrupts to ensure that this function is not interrupted. The calls to SPICC26XXDMA_transferCancel
-     * within the driver are safe. However, this function may be called by the application in callback mode.
-     * Hence, it might be preempted by the SPI hwi and swi or the PIN hwi and swi.
+    /* Disable interrupts to ensure that this function is not interrupted. The
+     * calls to SPICC26XXDMA_transferCancel within the driver are safe.
+     * However, this function may be called by the application in callback
+     * mode.  Hence, it might be preempted by the SPI hwi and swi or the PIN
+     * hwi and swi.
      */
     uint32_t key = HwiP_disable();
 
     /* Check if there is an active transaction */
     if(object->currentTransaction == NULL) {
+
+        /*
+         * Disable the SPI peripheral in case the peripherals finite state
+         * machine is in a bad state. Calling SPI_transfer() will re-enable
+         * the peripheral.
+         */
+        SSIDisable(hwAttrs->baseAddr);
         HwiP_restore(key);
 
         return;
@@ -981,7 +1006,8 @@ void SPICC26XXDMA_transferCancel(SPI_Handle handle) {
     /* Disable the SPI module */
     SSIDisable(hwAttrs->baseAddr);
 
-    /* Disable SPI TX/RX DMA and clear DMA done interrupt just in case it finished */
+    /* Disable SPI TX/RX DMA and clear DMA done interrupt just in case it
+     * finished */
     SSIDMADisable(hwAttrs->baseAddr, SSI_DMA_TX | SSI_DMA_RX);
     UDMACC26XX_clearInterrupt(object->udmaHandle, (hwAttrs->rxChannelBitMask) | (hwAttrs->txChannelBitMask));
 
@@ -995,7 +1021,8 @@ void SPICC26XXDMA_transferCancel(SPI_Handle handle) {
     /* Release constraint since transaction is done */
     threadSafeConstraintRelease((uint32_t)(transaction->txBuf), object);
 
-    /* Mark the transaction as failed if we didn't end up here due to a CSN deassertion */
+    /* Mark the transaction as failed if we didn't end up here due to a CSN
+     * deassertion */
     if (transaction->status == SPI_TRANSFER_STARTED) {
         transaction->status = SPI_TRANSFER_CANCELED;
     }
@@ -1003,11 +1030,18 @@ void SPICC26XXDMA_transferCancel(SPI_Handle handle) {
     /* Disable the UDMA channels */
     UDMACC26XX_channelDisable(object->udmaHandle, (hwAttrs->rxChannelBitMask) | (hwAttrs->txChannelBitMask));
 
-    /* Update the SPI_Transaction.count parameter */
-    /* rxChannel always finishes after txChannel so remaining bytes of the rxChannel is used to update count */
+    /* Update the SPI_Transaction.count parameter
+     * rxChannel always finishes after txChannel so remaining bytes of the
+     * rxChannel is used to update count */
     dmaControlTableEntry = (hwAttrs->baseAddr == SSI0_BASE ? &dmaSpi0RxControlTableEntry : &dmaSpi1RxControlTableEntry);
-    transaction->count = object->amtDataXferred + (object->currentXferAmt -
-        UDMACC26XX_GET_TRANSFER_SIZE(dmaControlTableEntry->ui32Control));
+    tempCount = (int_fast32_t)object->amtDataXferred + ((int_fast32_t)object->currentXferAmt -
+        (int_fast32_t)UDMACC26XX_GET_TRANSFER_SIZE(dmaControlTableEntry->ui32Control));
+    /* The DMA GET_TRANSFER_SIZE macro returns 1 or higher so we check for
+     * unsigned underflow before writing the result */
+    if(tempCount > 0)
+    {
+        transaction->count = (size_t)tempCount;
+    }
 
     /* Post SWI to handle remaining clean up and invocation of callback */
     SwiP_post(&(object->swi));
@@ -1031,7 +1065,7 @@ static void SPICC26XXDMA_transferCallback(SPI_Handle handle, SPI_Transaction *ms
 }
 
 /*
- *  ======== SPICC26XXDMA_csnDeassertCallback ========
+ *  ======== SPICC26XXDMA_csnCallback ========
  *  Slave mode optional callback function for when the CSN is deasserted
  *
  *  @pre    Function assumes that the handle is not NULL
@@ -1053,7 +1087,6 @@ static void SPICC26XXDMA_csnCallback(PIN_Handle handle, PIN_Id pinId)
     PIN_setInterrupt(handle, object->csnPin);
 
     /* Cancel transfer if POSEDGE interrupt */
-    /* TODO: Consider doing this in a SWI */
     if ((csnConfig & PIN_IRQ_POSEDGE) == PIN_IRQ_POSEDGE) {
         /* Indicate why the transaction completed */
         if ((object->currentTransaction != NULL) && (object->currentTransaction->status == SPI_TRANSFER_STARTED)) {
@@ -1065,7 +1098,7 @@ static void SPICC26XXDMA_csnCallback(PIN_Handle handle, PIN_Id pinId)
 }
 
 /*
-*  ======== SPICC26XXDMA_hwInit ========
+*  ======== SPICC26XXDMA_initHw ========
 *  This functions initializes the SPI hardware module.
 *
 *  @pre    Function assumes that the SPI handle is pointing to a hardware
@@ -1094,7 +1127,7 @@ static void SPICC26XXDMA_initHw(SPI_Handle handle) {
 }
 
 /*
-*  ======== SPICC26XXDMA_hwInit ========
+*  ======== SPICC26XXDMA_initIO ========
 *  This functions initializes the SPI IOs.
 *
 *  @pre    Function assumes that the SPI handle is pointing to a hardware
@@ -1111,7 +1144,7 @@ static bool SPICC26XXDMA_initIO(SPI_Handle handle) {
     hwAttrs = handle->hwAttrs;
 
     /* Configure IOs */
-    /* Build local list of pins, allocate through PIN driver and map HW ports */
+    /* Build local list of pins, allocate through PIN driver and map ports */
     if (object->mode == SPI_SLAVE) {
       /* Configure IOs for slave mode */
       spiPinTable[i++] = hwAttrs->mosiPin | PIN_INPUT_EN;
@@ -1124,8 +1157,9 @@ static bool SPICC26XXDMA_initIO(SPI_Handle handle) {
       spiPinTable[i++] = hwAttrs->mosiPin | PIN_GPIO_OUTPUT_EN | PIN_GPIO_LOW | PIN_PUSHPULL | PIN_INPUT_DIS | PIN_DRVSTR_MED;
       spiPinTable[i++] = hwAttrs->misoPin | PIN_INPUT_EN | PIN_PULLDOWN;
 
-      /* Output low signal on SCLK until SPI module drives signal if clock polarity is configured to '0' */
-      /* Output high signal on SCLK until SPI module drives signal if clock polarity is configured to '1' */
+      /* Output low signal on SCLK until SPI module drives signal if clock
+       * polarity is configured to '0' Output high signal on SCLK until SPI
+       * module drives signal if clock polarity is configured to '1' */
       if (object->frameFormat == SPI_POL0_PHA0 || object->frameFormat == SPI_POL0_PHA1) {
           spiPinTable[i++] = hwAttrs->clkPin | PIN_GPIO_OUTPUT_EN | PIN_GPIO_LOW | PIN_PUSHPULL | PIN_INPUT_DIS | PIN_DRVSTR_MED;
       }
@@ -1133,7 +1167,8 @@ static bool SPICC26XXDMA_initIO(SPI_Handle handle) {
           spiPinTable[i++] = hwAttrs->clkPin | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH | PIN_PUSHPULL | PIN_INPUT_DIS | PIN_DRVSTR_MED;
       }
 
-      /* If CSN isn't SW controlled, drive it high until SPI module drives signal to avoid glitches */
+      /* If CSN isn't SW controlled, drive it high until SPI module drives
+       * signal to avoid glitches */
       if(object->csnPin != PIN_UNASSIGNED) {
           spiPinTable[i++] = object->csnPin | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH | PIN_PUSHPULL | PIN_INPUT_DIS | PIN_DRVSTR_MED;
       }

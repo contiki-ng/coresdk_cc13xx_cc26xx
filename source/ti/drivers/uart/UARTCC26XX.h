@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -49,6 +49,10 @@
  * specific config, and casting in the general API will ensure that the correct
  * device specific functions are called.
  * This is also reflected in the example code in [Use Cases](@ref USE_CASES).
+ * This driver does not support polling modes for UART_read() and UART_write().
+ * Text mode (e.g., read returns on receiving a newline character) is also
+ * not supported by this driver.  If polling mode or text mode are needed,
+ * the UARTCC26X2 driver can be used instead.
  *
  * # General Behavior #
  * Before using the UART in CC26XX:
@@ -183,10 +187,10 @@
  *          .intNum      = INT_UART0,
  *          .intPriority = ~0,
  *          .swiPriority = 0,
- *          .txPin       = Board_UART_TX,
- *          .rxPin       = Board_UART_RX,
- *          .ctsPin      = Board_UART_CTS,
- *          .rtsPin      = Board_UART_RTS
+ *          .txPin       = CONFIG_UART_TX,
+ *          .rxPin       = CONFIG_UART_RX,
+ *          .ctsPin      = CONFIG_UART_CTS,
+ *          .rtsPin      = CONFIG_UART_RTS
  *          .ringBufPtr  = uartCC26XXRingBuffer[0],
  *          .ringBufSize = sizeof(uartCC26XXRingBuffer[0]),
  *          .txIntFifoThr= UARTCC26XX_FIFO_THRESHOLD_1_8,
@@ -219,6 +223,8 @@
  *    - UART_readPolling()
  *    - UART_writePolling()
  *
+ *  For polling mode or text processing, the UARTCC26X2 driver can be used.
+ *
  * # Use Cases @anchor USE_CASES #
  * ## Basic Receive #
  *  Receive 100 bytes over UART in ::UART_MODE_BLOCKING.
@@ -232,10 +238,10 @@
  *  UART_Params_init(&params);
  *  params.baudRate      = 9600;
  *  params.writeDataMode = UART_DATA_BINARY;
- *  params.readTimeout   = timeoutUs / ClockP_tickPeriod; // Default tick period is 10us
+ *  params.readTimeout   = timeoutUs / ClockP_getSystemTickPeriod(); // Default tick period is 10us
  *
  *  // Open the UART and do the read
- *  handle = UART_open(Board_UART, &params);
+ *  handle = UART_open(CONFIG_UART, &params);
  *  int rxBytes = UART_read(handle, rxBuf, 100);
  *  @endcode
  *
@@ -255,7 +261,7 @@
  *  params.writeDataMode = UART_DATA_BINARY;
  *
  *  // Open the UART and initiate the partial read
- *  handle = UART_open(Board_UART, &params);
+ *  handle = UART_open(CONFIG_UART, &params);
  *  // Enable RETURN_PARTIAL
  *  UART_control(handle, UARTCC26XX_CMD_RETURN_PARTIAL_ENABLE, NULL);
  *  // Begin read
@@ -276,7 +282,7 @@
  *  params.writeDataMode = UART_DATA_BINARY;
  *
  *  // Open the UART and do the write
- *  handle = UART_open(Board_UART, &params);
+ *  handle = UART_open(CONFIG_UART, &params);
  *  UART_write(handle, txBuf, sizeof(txBuf));
  *  @endcode
  *
@@ -338,7 +344,7 @@
  *      params.readCallback  = readCallback;
  *
  *      // Open the UART and initiate the first read
- *      handle = UART_open(Board_UART, &params);
+ *      handle = UART_open(CONFIG_UART, &params);
  *      wantedRxBytes = 16;
  *      int rxBytes = UART_read(handle, rxBuf, wantedRxBytes);
  *
@@ -371,10 +377,6 @@
 #ifndef ti_drivers_uart_UARTCC26XX__include
 #define ti_drivers_uart_UARTCC26XX__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -390,6 +392,10 @@ extern "C" {
 #include <ti/drivers/dpl/SwiP.h>
 #include <ti/drivers/dpl/ClockP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  *  @addtogroup UART_STATUS
@@ -451,7 +457,7 @@ extern "C" {
  *  Defined FIFO thresholds for generation of both TX interrupt and RX interrupt.
  *  The default value (UARTCC26XX_FIFO_THRESHOLD_DEFAULT) is defined for backward compatibility handling.
  */
-typedef enum UARTCC26XX_FifoThreshold {
+typedef enum {
     UARTCC26XX_FIFO_THRESHOLD_DEFAULT = 0, /*!< Default value forces FIFO
                                                 threshold of 1/8 for TX
                                                 interrupt and 4/8 for RX
@@ -512,8 +518,8 @@ extern const UART_FxnTable UARTCC26XX_fxnTable;
  *          .intNum      = INT_UART0,
  *          .intPriority = ~0,
  *          .swiPriority = 0,
- *          .txPin       = Board_UART_TX,
- *          .rxPin       = Board_UART_RX,
+ *          .txPin       = CONFIG_UART_TX,
+ *          .rxPin       = CONFIG_UART_RX,
  *          .ctsPin      = PIN_UNASSIGNED,
  *          .rtsPin      = PIN_UNASSIGNED,
  *          .ringBufPtr  = uartCC26XXRingBuffer[0],
@@ -526,7 +532,7 @@ extern const UART_FxnTable UARTCC26XX_fxnTable;
  *
  *  The .ctsPin and .rtsPin must be assigned to enable flow control.
  */
-typedef struct UARTCC26XX_HWAttrsV2 {
+typedef struct {
     uint32_t     baseAddr;    /*!< UART Peripheral's base address */
     uint32_t     powerMngrId; /*!< UART Peripheral's power manager ID */
     int          intNum;      /*!< UART Peripheral's interrupt vector */
@@ -566,7 +572,7 @@ typedef struct UARTCC26XX_HWAttrsV2 {
  *
  *  The UART Status is used to flag the different Receive Errors.
  */
-typedef enum UART_Status {
+typedef enum {
     UART_TIMED_OUT     = 0x10,                 /*!< UART timed out */
     UART_PARITY_ERROR  = UART_RXERROR_PARITY,  /*!< UART Parity error */
     UART_BRAKE_ERROR   = UART_RXERROR_BREAK,   /*!< UART Break error */
@@ -580,7 +586,7 @@ typedef enum UART_Status {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct UARTCC26XX_Object {
+typedef struct {
     /* UART control variables */
     bool                opened;         /*!< Has the obj been opened */
     UART_Mode           readMode;       /*!< Mode for all read calls */

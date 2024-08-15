@@ -66,14 +66,14 @@
 #ifndef ti_drivers_sd_SDSPI__include
 #define ti_drivers_sd_SDSPI__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/SD.h>
 #include <ti/drivers/SPI.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* SDSPI function table */
 extern const SD_FxnTable SDSPI_fxnTable;
@@ -101,7 +101,7 @@ extern const SD_FxnTable SDSPI_fxnTable;
  *  };
  *  @endcode
  */
-typedef struct SDSPI_HWAttrs_ {
+typedef struct {
     uint_least8_t spiIndex;
     uint16_t      spiCsGpioIndex;
 } SDSPI_HWAttrs;
@@ -111,7 +111,7 @@ typedef struct SDSPI_HWAttrs_ {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct SDSPI_Object_ {
+typedef struct {
     SemaphoreP_Handle lockSem;
     SPI_Handle        spiHandle;
     SD_CardType       cardType;

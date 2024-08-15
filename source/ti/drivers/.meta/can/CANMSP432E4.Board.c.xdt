@@ -1,0 +1,105 @@
+%%{
+/*
+ * Copyright (c) 2019-2020, Texas Instruments Incorporated - http://www.ti.com
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+/*
+ *  ======== CANMSP432E4.Board.c.xdt ========
+ */
+
+    /* passed by /ti/drivers/templates/Board.c.xdt */
+    let CAN = args[0];
+    let instances = CAN.$instances;
+    if (instances.length == 0) return;
+
+    /* get ti/drivers common utility functions */
+    let Common = system.getScript("/ti/drivers/Common.js");
+
+    let declarations = Common.genBoardDeclarations(instances);
+
+    /* Board_XXXCOUNT string, derived from defaultInstanceName */
+    let countDef = CAN.defaultInstanceName + "COUNT";
+%%}
+/*
+ *  =============================== CAN ===============================
+ */
+#include <ti/drivers/CAN.h>
+#include <ti/drivers/can/CANMSP432E4.h>
+#include <ti/devices/msp432e4/driverlib/interrupt.h>
+
+#define `countDef` `instances.length`
+CANMSP432E4_Object canMSP432E4Objects[`countDef`];
+CAN_Frame canMSP432E4RxBuffer[`countDef`][4];
+CAN_Frame canMSP432E4TxBuffer[`countDef`][4];
+
+/* CAN configuration structure */
+const CANMSP432E4_HWAttrs canMSP432E4HWAttrs[`countDef`] = {
+% for (let i = 0; i < instances.length; i++) {
+    % let inst = instances[i];
+    % let can = inst.can;
+    %
+    % let name = can.$solution.peripheralName;
+    % let base = name + "_BASE";
+    % let intNum = "INT_" + name;
+    % let rx = "CANMSP432E4_" + can.rxPin.$solution.devicePinName +"_" + name + "RX";
+    % let tx = "CANMSP432E4_" + can.txPin.$solution.devicePinName +"_" + name + "TX";
+
+    {
+        .baseAddr = `base`,
+        .intNum = `intNum`,
+        .intPriority = `Common.intPriority2Hex(inst.interruptPriority)`,
+        .rxPin = `rx`,
+        .txPin = `tx`,
+        .baudRate = `inst.baudRate`,
+        .errorFxn = `inst.errorFxn`
+    },
+% }
+};
+
+const CAN_Config CAN_config[`countDef`] = {
+% for (let i = 0; i < instances.length; i++) {
+% let inst = instances[i];
+    /* `inst.$name` */
+    {
+        .fxnTablePtr = &CANMSP432E4_fxnTable,
+        .object = &canMSP432E4Objects[`inst.$name`],
+        .hwAttrs = &canMSP432E4HWAttrs[`inst.$name`],
+        .rxBufPtr = canMSP432E4RxBuffer[`inst.$name`],
+        .txBufPtr = canMSP432E4TxBuffer[`inst.$name`],
+        .rxBufSize = sizeof(canMSP432E4RxBuffer[`inst.$name`]),
+        .txBufSize = sizeof(canMSP432E4TxBuffer[`inst.$name`]),
+    },
+% }
+};
+
+`declarations`
+const uint_least8_t CAN_count = `countDef`;

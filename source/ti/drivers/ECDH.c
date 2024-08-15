@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,8 +39,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/ECDH.h>
+
+/* Extern globals */
+extern const ECDH_Config ECDH_config[];
+extern const uint_least8_t ECDH_count;
 
 const ECDH_Params ECDH_defaultParams = {
     .returnBehavior = ECDH_RETURN_BEHAVIOR_BLOCKING,
@@ -50,14 +55,35 @@ const ECDH_Params ECDH_defaultParams = {
 };
 
 /*
+ *  ======== ECDH_open ========
+ */
+ECDH_Handle ECDH_open(uint_least8_t index, const ECDH_Params *params) {
+    DebugP_assert(index < ECDH_count);
+
+    ECDH_Config *config = (ECDH_Config*)&ECDH_config[index];
+    return ECDH_construct(config, params);
+}
+
+/*
  *  ======== ECDH_OperationGeneratePublicKey_init ========
  */
 void ECDH_OperationGeneratePublicKey_init(ECDH_OperationGeneratePublicKey *operation){
-    memset(operation, 0x00, sizeof(ECDH_OperationGeneratePublicKey));
+    operation->curve = NULL;
+    operation->myPrivateKey = NULL;
+    operation->myPublicKey = NULL;
+    /* Default public key format is octet string */
+    operation->publicKeyDataFormat = ECDH_PUBLIC_KEY_DATA_FORMAT_OCTET_STRING;
 }
 /*
  *  ======== ECDH_OperationComputeSharedSecret_init ========
  */
 void ECDH_OperationComputeSharedSecret_init(ECDH_OperationComputeSharedSecret *operation){
-    memset(operation, 0x00, sizeof(ECDH_OperationComputeSharedSecret));
+    operation->curve = NULL;
+    operation->myPrivateKey = NULL;
+    operation->theirPublicKey = NULL;
+    operation->sharedSecret = NULL;
+    /* Default public key format is octet string */
+    operation->publicKeyDataFormat = ECDH_PUBLIC_KEY_DATA_FORMAT_OCTET_STRING;
+    /* Default shared secret format is octet string */
+    operation->sharedSecretDataFormat = ECDH_PUBLIC_KEY_DATA_FORMAT_OCTET_STRING;
 }

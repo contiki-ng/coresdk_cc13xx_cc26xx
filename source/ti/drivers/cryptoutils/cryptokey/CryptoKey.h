@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -84,12 +84,12 @@
 #ifndef ti_drivers_cryptoutils_cyptokey_CryptoKey__include
 #define ti_drivers_cryptoutils_cyptokey_CryptoKey__include
 
+#include <stdint.h>
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdint.h>
-#include <stdbool.h>
 
 /*!
 
@@ -156,14 +156,13 @@ extern "C" {
  *  @brief  List of the different types of CryptoKey.
  *
  */
-typedef enum CryptoKey_Encoding_ {
-    CryptoKey_PLAINTEXT             = 1 << 1,
-    CryptoKey_BLANK_PLAINTEXT       = 1 << 2,
-    CryptoKey_KEYSTORE              = 1 << 3,
-    CryptoKey_BLANK_KEYSTORE        = 1 << 4,
-    CryptoKey_KEYBLOB               = 1 << 5,
-    CryptoKey_BLANK_KEYBLOB         = 1 << 6,
-} CryptoKey_Encoding;
+typedef uint8_t CryptoKey_Encoding;
+static const CryptoKey_Encoding CryptoKey_PLAINTEXT             = 0x02U;
+static const CryptoKey_Encoding CryptoKey_BLANK_PLAINTEXT       = 0x04U;
+static const CryptoKey_Encoding CryptoKey_KEYSTORE              = 0x08U;
+static const CryptoKey_Encoding CryptoKey_BLANK_KEYSTORE        = 0x10U;
+static const CryptoKey_Encoding CryptoKey_KEYBLOB               = 0x20U;
+static const CryptoKey_Encoding CryptoKey_BLANK_KEYBLOB         = 0x40U;
 
 /*!
  *  @brief  Plaintext CryptoKey datastructure.
@@ -171,9 +170,9 @@ typedef enum CryptoKey_Encoding_ {
  * This structure contains all the information necessary to access keying material stored
  * in plaintext form in flash or RAM.
  */
-typedef struct CryptoKey_Plaintext_ {
+typedef struct {
     uint8_t *keyMaterial;
-    uint16_t keyLength;
+    uint32_t keyLength;
 } CryptoKey_Plaintext;
 
 /*!
@@ -182,9 +181,9 @@ typedef struct CryptoKey_Plaintext_ {
  * This structure contains all the information necessary to access keying material stored
  * in a dedicated key store or key database with memory access controls.
  */
-typedef struct CryptoKey_KeyStore_ {
+typedef struct {
     void* keyStore;
-    uint16_t keyLength;
+    uint32_t keyLength;
     uint32_t keyIndex;
 } CryptoKey_KeyStore;
 
@@ -194,7 +193,7 @@ typedef struct CryptoKey_KeyStore_ {
  * This structure contains all the information necessary to access keying material stored
  * in an encrypted structure in flash or RAM.
  */
-typedef struct CryptoKey_KeyBlob_ {
+typedef struct {
     uint8_t *keyBlob;
     uint32_t keyBlobLength;
 } CryptoKey_KeyBlob;
@@ -207,7 +206,7 @@ typedef struct CryptoKey_KeyBlob_ {
  * - CryptoKey_KeyStore
  * - CryptoKey_KeyBlob
  */
-typedef struct CryptoKey_ {
+typedef struct {
     CryptoKey_Encoding encoding;
     union {
         CryptoKey_Plaintext plaintext;

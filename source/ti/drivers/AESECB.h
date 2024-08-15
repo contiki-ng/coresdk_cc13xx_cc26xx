@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  *  @file       AESECB.h
  *
  *  @brief      AESECB driver header
- *
- *  @warning     This is a beta API. It may change in future releases.
  *
  *  @anchor ti_drivers_AESECB_Overview
  *  # Overview #
@@ -249,15 +247,15 @@
 #ifndef ti_drivers_AESECB__include
 #define ti_drivers_AESECB__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * Common AESECB status code reservation offset.
@@ -305,9 +303,28 @@ extern "C" {
 #define AESECB_STATUS_CANCELED (-3)
 
 /*!
+ *  @brief AESECB Global configuration
+ *
+ *  The AESECB_Config structure contains a set of pointers used to characterize
+ *  the AESECB driver implementation.
+ *
+ *  This structure needs to be defined before calling AESECB_init() and it must
+ *  not be changed thereafter.
+ *
+ *  @sa     AESECB_init()
+ */
+typedef struct {
+    /*! Pointer to a driver specific data object */
+    void               *object;
+
+    /*! Pointer to a driver specific hardware attributes structure */
+    void         const *hwAttrs;
+} AESECB_Config;
+
+/*!
  *  @brief  A handle that is returned from an AESECB_open() call.
  */
-typedef struct AESECB_Config    *AESECB_Handle;
+typedef AESECB_Config *AESECB_Handle;
 
 /*!
  * @brief   The way in which ECB function calls return after performing an
@@ -384,25 +401,6 @@ typedef enum {
     AESECB_OPERATION_TYPE_ENCRYPT = 1,
     AESECB_OPERATION_TYPE_DECRYPT = 2,
 } AESECB_OperationType;
-
-/*!
- *  @brief AESECB Global configuration
- *
- *  The AESECB_Config structure contains a set of pointers used to characterize
- *  the AESECB driver implementation.
- *
- *  This structure needs to be defined before calling AESECB_init() and it must
- *  not be changed thereafter.
- *
- *  @sa     AESECB_init()
- */
-typedef struct AESECB_Config {
-    /*! Pointer to a driver specific data object */
-    void               *object;
-
-    /*! Pointer to a driver specific hardware attributes structure */
-    void         const *hwAttrs;
-} AESECB_Config;
 
 /*!
  *  @brief  The definition of a callback function used by the AESECB driver
@@ -491,7 +489,7 @@ void AESECB_Params_init(AESECB_Params *params);
  *  @sa     AESECB_init()
  *  @sa     AESECB_close()
  */
-AESECB_Handle AESECB_open(uint_least8_t index, AESECB_Params *params);
+AESECB_Handle AESECB_open(uint_least8_t index, const AESECB_Params *params);
 
 /*!
  *  @brief  Function to close an ECB peripheral specified by the ECB handle
@@ -570,6 +568,31 @@ int_fast16_t AESECB_oneStepDecrypt(AESECB_Handle handle, AESECB_Operation *opera
  *  @retval #AESECB_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
  */
 int_fast16_t AESECB_cancelOperation(AESECB_Handle handle);
+
+/**
+ *  @brief  Constructs a new AESECB object
+ *
+ *  Unlike #AESECB_open(), #AESECB_construct() does not require the hwAttrs and
+ *  object to be allocated in a #AESECB_Config array that is indexed into.
+ *  Instead, the #AESECB_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #AESECB_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #AESECB_Params to configure the driver instance.
+ *
+ *  @return        Returns a #AESECB_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+AESECB_Handle AESECB_construct(AESECB_Config *config, const AESECB_Params *params);
 
 #ifdef __cplusplus
 }

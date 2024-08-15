@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -88,10 +88,6 @@
 #ifndef ti_drivers_ecjpake_ECJPAKECC26X2__include
 #define ti_drivers_ecjpake_ECJPAKECC26X2__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -103,6 +99,10 @@ extern "C" {
 #include <ti/drivers/dpl/HwiP.h>
 #include <ti/drivers/dpl/SwiP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Exit the SWI and wait until an HWI call posts the SWI again */
 #define ECJPAKECC26X2_STATUS_FSM_RUN_PKA_OP       ECJPAKE_STATUS_RESERVED - 0
@@ -118,13 +118,8 @@ extern "C" {
  *  The FSM controller will increment the state counter and iterate through
  *  states until it is told to stop or restart.
  */
-typedef enum ECJPAKECC26X2_FsmState_ {
+typedef enum {
     ECJPAKECC26X2_FSM_ERROR = 0,
-
-    ECJPAKECC26X2_FSM_ROUND_ONE_VALIDATE_MYPRIVATEKEY1,
-    ECJPAKECC26X2_FSM_ROUND_ONE_VALIDATE_MYPRIVATEKEY2,
-    ECJPAKECC26X2_FSM_ROUND_ONE_VALIDATE_MYPRIVATEV1,
-    ECJPAKECC26X2_FSM_ROUND_ONE_VALIDATE_MYPRIVATEV2,
     ECJPAKECC26X2_FSM_ROUND_ONE_GENERATE_MYPUBLICKEY1,
     ECJPAKECC26X2_FSM_ROUND_ONE_GENERATE_MYPUBLICKEY1_RESULT,
     ECJPAKECC26X2_FSM_ROUND_ONE_GENERATE_MYPUBLICKEY2,
@@ -170,7 +165,6 @@ typedef enum ECJPAKECC26X2_FsmState_ {
     ECJPAKECC26X2_FSM_ROUND_TWO_ADD_MYPUBLICKEY2_RESULT,
     ECJPAKECC26X2_FSM_ROUND_TWO_MULT_MYCOMBINEDPRIVATEKEY_BY_MYNEWGENERATOR,
     ECJPAKECC26X2_FSM_ROUND_TWO_MULT_MYCOMBINEDPRIVATEKEY_BY_MYNEWGENERATOR_RESULT,
-    ECJPAKECC26X2_FSM_ROUND_TWO_VALIDATE_MYPRIVATEV,
     ECJPAKECC26X2_FSM_ROUND_TWO_GENERATE_MYPUBLICV,
     ECJPAKECC26X2_FSM_ROUND_TWO_GENERATE_MYPUBLICV_RESULT,
     ECJPAKECC26X2_FSM_ROUND_TWO_GENERATE_RETURN,
@@ -193,7 +187,7 @@ typedef enum ECJPAKECC26X2_FsmState_ {
  *  ECJPAKECC26X2 hardware attributes should be included in the board file
  *  and pointed to by the ECJPAKE_config struct.
  */
-typedef struct ECJPAKECC26X2_HWAttrs_ {
+typedef struct {
     /*! @brief PKA Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
@@ -214,7 +208,7 @@ typedef struct ECJPAKECC26X2_HWAttrs_ {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct ECJPAKECC26X2_Object_ {
+typedef struct {
     bool                                isOpen;
     bool                                operationInProgress;
     bool                                operationCanceled;

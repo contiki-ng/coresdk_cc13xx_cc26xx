@@ -174,13 +174,14 @@
 #ifndef ti_drivers_watchdog_WatchdogCC26XX__include
 #define ti_drivers_watchdog_WatchdogCC26XX__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <ti/drivers/Watchdog.h>
+#include <ti/drivers/dpl/HwiP.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  *  @addtogroup Watchdog_STATUS
@@ -210,15 +211,13 @@ extern "C" {
 
 /** @}*/
 
-#include <ti/drivers/dpl/HwiP.h>
-
 /*! @brief  Watchdog function table for CC26XX */
 extern const Watchdog_FxnTable WatchdogCC26XX_fxnTable;
 
 /*!
  *  @brief  Watchdog hardware attributes for CC26XX
  */
-typedef struct WatchdogCC26XX_HWAttrs {
+typedef struct {
     unsigned int baseAddr;       /*!< Base adddress for Watchdog */
     unsigned long reloadValue;   /*!< Reload value in milliseconds for Watchdog */
 } WatchdogCC26XX_HWAttrs;
@@ -228,7 +227,7 @@ typedef struct WatchdogCC26XX_HWAttrs {
  *
  *  Not to be accessed by the user.
  */
-typedef struct WatchdogCC26XX_Object {
+typedef struct {
     bool                isOpen;             /* Flag for open/close status */
     Watchdog_Callback   callbackFxn;        /* Pointer to callback. Not supported
                                                on all targets. */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -56,6 +56,10 @@
 /* Defines and enumerations */
 #define SHA2_UNUSED(value)    ((void)(value))
 
+/* Outer and inner padding bytes used in HMAC */
+#define HMAC_OPAD_BYTE 0x5C
+#define HMAC_IPAD_BYTE 0x36
+
 typedef enum {
     SHA2_OperationType_SingleStep,
     SHA2_OperationType_MultiStep,
@@ -65,8 +69,24 @@ typedef enum {
 /* Forward declarations */
 static uint32_t floorUint32(uint32_t value, uint32_t divider);
 static void SHA2_hwiFxn (uintptr_t arg0);
-static int_fast16_t SHA2_waitForAccess(SHA2_Handle handle);
-static int_fast16_t SHA2_waitForResult(SHA2_Handle handle);
+static int_fast16_t SHA2CC26X2_waitForAccess(SHA2_Handle handle);
+static int_fast16_t SHA2CC26X2_waitForResult(SHA2_Handle handle);
+static void SHA2CC26X2_configureInterrupts(SHA2_Handle handle,
+                                           SHA2CC26X2_Object *object,
+                                           SHA2CC26X2_HWAttrs const *hwAttrs,
+                                           void (*callbackFxn)(uintptr_t arg0));
+static void SHA2CC26X2_xorBufferWithByte(uint8_t *buffer,
+                                         size_t bufferLength,
+                                         uint8_t byte);
+static void SHA2CC26X2_cleanUpAfterOperation(SHA2CC26X2_Object *object);
+static int_fast16_t SHA2CC26X2_addData(SHA2_Handle handle,
+                                       const void* data,
+                                       size_t length);
+static int_fast16_t SHA2CC26X2_finalize(SHA2_Handle handle, void *digest);
+static int_fast16_t SHA2CC26X2_hashData(SHA2_Handle handle,
+                                        const void *data,
+                                        size_t length,
+                                        void *digest);
 
 /* Static globals */
 static const uint32_t hashModeTable[] = {
@@ -90,6 +110,13 @@ static const uint8_t digestSizeTable[] = {
     SHA2_DIGEST_LENGTH_BYTES_512
 };
 
+static const uint8_t intermediateDigestSizeTable[] = {
+    SHA2_DIGEST_LENGTH_BYTES_256,
+    SHA2_DIGEST_LENGTH_BYTES_256,
+    SHA2_DIGEST_LENGTH_BYTES_512,
+    SHA2_DIGEST_LENGTH_BYTES_512
+};
+
 static const uint8_t *SHA2_data;
 
 static uint32_t SHA2_dataBytesRemaining;
@@ -97,6 +124,8 @@ static uint32_t SHA2_dataBytesRemaining;
 static SHA2_OperationType SHA2_operationType;
 
 static bool isInitialized = false;
+
+static bool readIntermediateDigest = false;
 
 /*
  *  ======== floorUint32 helper ========
@@ -108,9 +137,38 @@ uint32_t floorUint32(uint32_t value, uint32_t divider) {
 /*
  *  ======== SHA2_hwiFxn ========
  */
-static void SHA2_hwiFxn (uintptr_t arg0) {
+static void SHA2_hwiFxn(uintptr_t arg0) {
     SHA2CC26X2_Object *object = ((SHA2_Handle)arg0)->object;
-    uint32_t blockSize = blockSizeTable[object->hashType];;
+
+    SHA2CC26X2_cleanUpAfterOperation(object);
+
+    if (object->retainAccessCounter == 0) {
+        /*  Grant access for other threads to use the crypto module.
+         *  The semaphore must be posted before the callbackFxn to allow the chaining
+         *  of operations.
+         */
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    }
+
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+    if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_BLOCKING) {
+        /* Unblock the pending task to signal that the operation is complete. */
+        SemaphoreP_post(&CryptoResourceCC26XX_operationSemaphore);
+    }
+    else if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_CALLBACK)
+    {
+        if (object->callbackFxn) {
+            object->callbackFxn((SHA2_Handle)arg0, object->returnStatus);
+        }
+    }
+}
+
+/*
+ *  ======== SHA2CC26X2_cleanUpAfterOperation ========
+ */
+static void SHA2CC26X2_cleanUpAfterOperation(SHA2CC26X2_Object *object) {
+    uint32_t blockSize = blockSizeTable[object->hashType];
     uint32_t irqStatus;
     uint32_t key;
 
@@ -118,7 +176,8 @@ static void SHA2_hwiFxn (uintptr_t arg0) {
     SHA2IntClear(SHA2_RESULT_RDY | SHA2_DMA_IN_DONE | SHA2_DMA_BUS_ERR);
 
     /*
-     * Prevent the following section from being interrupted by SHA2_cancelOperation().
+     * Prevent the following section from being interrupted by
+     * SHA2_cancelOperation().
      */
     key = HwiP_disable();
 
@@ -136,16 +195,23 @@ static void SHA2_hwiFxn (uintptr_t arg0) {
          */
         object->returnStatus = SHA2_STATUS_ERROR;
 
-    } else if (SHA2_dataBytesRemaining == 0) {
+    } else if (SHA2_dataBytesRemaining == 0 &&
+               readIntermediateDigest == true) {
         /*
-         * Last transaction has finished. Nothing to do.
+         * Last transaction has finished and we need to store an intermediate
+         * digest.
          */
+        SHA2GetDigest(object->digest,
+                      intermediateDigestSizeTable[object->hashType]);
+
+        readIntermediateDigest = false;
 
     } else if (SHA2_dataBytesRemaining >= blockSize) {
         /*
          * Start another transaction
          */
-        uint32_t transactionLength = floorUint32(SHA2_dataBytesRemaining, blockSize);
+        uint32_t transactionLength = floorUint32(SHA2_dataBytesRemaining,
+                                                 blockSize);
 
         SHA2ComputeIntermediateHash(SHA2_data,
                                object->digest,
@@ -155,6 +221,7 @@ static void SHA2_hwiFxn (uintptr_t arg0) {
         SHA2_dataBytesRemaining -= transactionLength;
         SHA2_data += transactionLength;
         object->bytesProcessed += transactionLength;
+        readIntermediateDigest = true;
 
         HwiP_restore(key);
         return;
@@ -182,48 +249,34 @@ static void SHA2_hwiFxn (uintptr_t arg0) {
     }
 
     HwiP_restore(key);
-
-    /*  Grant access for other threads to use the crypto module.
-     *  The semaphore must be posted before the callbackFxn to allow the chaining
-     *  of operations.
-     */
-    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
-
-    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
-
-    if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_BLOCKING) {
-        /* Unblock the pending task to signal that the operation is complete. */
-        SemaphoreP_post(&CryptoResourceCC26XX_operationSemaphore);
-    }
-    else if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_CALLBACK)
-    {
-        if (object->callbackFxn) {
-            object->callbackFxn((SHA2_Handle)arg0, object->returnStatus);
-        }
-    }
 }
 
-
 /*
- *  ======== SHA2_waitForAccess ========
+ *  ======== SHA2CC26X2_waitForAccess ========
  */
-static int_fast16_t SHA2_waitForAccess(SHA2_Handle handle) {
+static int_fast16_t SHA2CC26X2_waitForAccess(SHA2_Handle handle) {
     SHA2CC26X2_Object *object = handle->object;
 
     return SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore, object->accessTimeout);
 }
 
 /*
- *  ======== SHA2_waitForResult ========
+ *  ======== SHA2CC26X2_waitForResult ========
  */
-static int_fast16_t SHA2_waitForResult(SHA2_Handle handle){
+static int_fast16_t SHA2CC26X2_waitForResult(SHA2_Handle handle){
     SHA2CC26X2_Object *object = handle->object;
 
     if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_POLLING) {
         do {
             SHA2WaitForIRQFlags(SHA2_RESULT_RDY | SHA2_DMA_BUS_ERR);
-            SHA2_hwiFxn((uintptr_t)handle);
+            SHA2CC26X2_cleanUpAfterOperation(object);
         } while (object->operationInProgress);
+
+        Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+        if (object->retainAccessCounter == 0) {
+            SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        }
 
         return object->returnStatus;
     }
@@ -239,6 +292,45 @@ static int_fast16_t SHA2_waitForResult(SHA2_Handle handle){
 }
 
 /*
+ *  ======== SHA2CC26X2_configureInterrupts ========
+ */
+static void SHA2CC26X2_configureInterrupts(SHA2_Handle handle,
+                                           SHA2CC26X2_Object *object,
+                                           SHA2CC26X2_HWAttrs const *hwAttrs,
+                                           void (*callbackFxn)(uintptr_t arg0)) {
+    /* If we are in SHA2_RETURN_BEHAVIOR_POLLING, we do not want an interrupt to trigger.
+     * We need to disable it before kicking off the operation.
+     */
+    if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_POLLING)  {
+        IntDisable(INT_CRYPTO_RESULT_AVAIL_IRQ);
+    }
+    else {
+        /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
+         * drivers and they all need to coexist. Whenever a driver starts an operation, it
+         * registers its HWI callback with the OS.
+         */
+        HwiP_setFunc(&CryptoResourceCC26XX_hwi, callbackFxn, (uintptr_t)handle);
+        HwiP_setPriority(INT_CRYPTO_RESULT_AVAIL_IRQ, hwAttrs->intPriority);
+
+        IntPendClear(INT_CRYPTO_RESULT_AVAIL_IRQ);
+        IntEnable(INT_CRYPTO_RESULT_AVAIL_IRQ);
+    }
+}
+
+/*
+ *  ======== SHA2CC26X2_xorBufferWithByte ========
+ */
+static void SHA2CC26X2_xorBufferWithByte(uint8_t *buffer,
+                                         size_t bufferLength,
+                                         uint8_t byte) {
+    size_t i;
+
+    for (i = 0; i < bufferLength; i++) {
+        buffer[i] = buffer[i] ^ byte;
+    }
+}
+
+/*
  *  ======== SHA2_init ========
  */
 void SHA2_init(void) {
@@ -248,19 +340,9 @@ void SHA2_init(void) {
 }
 
 /*
- *  ======== SHA2_open ========
- */
-SHA2_Handle SHA2_open(uint_least8_t index, const SHA2_Params *params) {
-    DebugP_assert(index < SHA2_count);
-
-    SHA2_Config *config = (SHA2_Config*)&SHA2_config[index];
-    return SHA2CC26X2_construct(config, params);
-}
-
-/*
  *  ======== SHA2_construct ========
  */
-SHA2_Handle SHA2CC26X2_construct(SHA2_Config *config, const SHA2_Params *params) {
+SHA2_Handle SHA2_construct(SHA2_Config *config, const SHA2_Params *params) {
     SHA2_Handle                 handle;
     SHA2CC26X2_Object           *object;
     uint_fast8_t                key;
@@ -330,42 +412,35 @@ void SHA2_close(SHA2_Handle handle) {
 }
 
 /*
- *  ======== SHA2_startHash ========
+ *  ======== SHA2_addData ========
  */
 int_fast16_t SHA2_addData(SHA2_Handle handle, const void* data, size_t length) {
+    /* Try and obtain access to the crypto module */
+    if (SHA2CC26X2_waitForAccess(handle) != SemaphoreP_OK) {
+        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
+    }
+
+    return SHA2CC26X2_addData(handle, data, length);
+}
+
+/*
+ *  ======== SHA2CC26X2_addData ========
+ */
+static int_fast16_t SHA2CC26X2_addData(SHA2_Handle handle,
+                                       const void* data,
+                                       size_t length) {
     SHA2CC26X2_Object *object = handle->object;
     SHA2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
     uint32_t blockSize = blockSizeTable[object->hashType];
     uintptr_t key;
 
-    /* Try and obtain access to the crypto module */
-    if (SHA2_waitForAccess(handle) != SemaphoreP_OK) {
-        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
-    }
-
-    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
-
-    /* If we are in SHA2_RETURN_BEHAVIOR_POLLING, we do not want an interrupt to trigger.
-     * We need to disable it before kicking off the operation.
-     */
-    if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_POLLING)  {
-        IntDisable(INT_CRYPTO_RESULT_AVAIL_IRQ);
-    }
-    else {
-        /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
-         * drivers and they all need to coexist. Whenever a driver starts an operation, it
-         * registers its HWI callback with the OS.
-         */
-        HwiP_setFunc(&CryptoResourceCC26XX_hwi, SHA2_hwiFxn, (uintptr_t)handle);
-        HwiP_setPriority(INT_CRYPTO_RESULT_AVAIL_IRQ, hwAttrs->intPriority);
-
-        IntPendClear(INT_CRYPTO_RESULT_AVAIL_IRQ);
-        IntEnable(INT_CRYPTO_RESULT_AVAIL_IRQ);
-    }
-
     object->returnStatus = SHA2_STATUS_SUCCESS;
     object->operationCanceled = false;
     SHA2_operationType = SHA2_OperationType_MultiStep;
+
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
 
     if ((object->bytesInBuffer + length) >= blockSize) {
         /* We have accumulated enough data to start a transaction. Now the question
@@ -393,7 +468,8 @@ int_fast16_t SHA2_addData(SHA2_Handle handle, const void* data, size_t length) {
 
             SHA2_data = (const uint8_t*)data + bytesToCopyToBuffer;
             SHA2_dataBytesRemaining = length - bytesToCopyToBuffer;
-        } else {
+        }
+        else {
             transactionStartAddress = data;
             transactionLength = floorUint32(length, blockSize);
 
@@ -412,11 +488,22 @@ int_fast16_t SHA2_addData(SHA2_Handle handle, const void* data, size_t length) {
          * operation or a follow-up from a previous one.
          */
         if (object->bytesProcessed > 0) {
+            /* SHA2ComputeIntermediateHash reads out and writes back
+             * intermediate digest sizes of the the final digest size. For
+             * SHA-224 and SHA-384, this produces incorrect results. Instead,
+             * the digest size of SHA-256 and SHA-512 should be used instead.
+             * This is why we are writing the digest to the accelerator here
+             * first to cover the difference in digest sizes.
+             */
+            SHA2SetDigest(object->digest,
+                          intermediateDigestSizeTable[object->hashType]);
+
             SHA2ComputeIntermediateHash(transactionStartAddress,
-                                   object->digest,
-                                   hashModeTable[object->hashType],
-                                   transactionLength);
-        } else {
+                                        object->digest,
+                                        hashModeTable[object->hashType],
+                                        transactionLength);
+        }
+        else {
             SHA2ComputeInitialHash(transactionStartAddress,
                                    object->digest,
                                    hashModeTable[object->hashType],
@@ -425,9 +512,11 @@ int_fast16_t SHA2_addData(SHA2_Handle handle, const void* data, size_t length) {
 
         object->bytesProcessed += transactionLength;
         object->operationInProgress = true;
+        readIntermediateDigest = true;
         HwiP_restore(key);
 
-    } else {
+    }
+    else {
         /* There is no action required by the hardware. But we kick the
          * interrupt in order to follow the same code path as the other
          * operations.
@@ -448,41 +537,33 @@ int_fast16_t SHA2_addData(SHA2_Handle handle, const void* data, size_t length) {
         HwiP_restore(key);
     }
 
-    return SHA2_waitForResult(handle);
+    return SHA2CC26X2_waitForResult(handle);
 }
 
 /*
  *  ======== SHA2_finalize ========
  */
 int_fast16_t SHA2_finalize(SHA2_Handle handle, void *digest) {
+
+    /* Try and obtain access to the crypto module */
+    if (SHA2CC26X2_waitForAccess(handle) != SemaphoreP_OK) {
+        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
+    }
+
+    return SHA2CC26X2_finalize(handle, digest);
+}
+
+/*
+ *  ======== SHA2CC26X2_finalize ========
+ */
+static int_fast16_t SHA2CC26X2_finalize(SHA2_Handle handle, void *digest) {
     SHA2CC26X2_Object *object = handle->object;
     SHA2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
     uintptr_t key;
 
-    /* Try and obtain access to the crypto module */
-    if (SHA2_waitForAccess(handle) != SemaphoreP_OK) {
-        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
-    }
-
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* If we are in SHA2_RETURN_BEHAVIOR_POLLING, we do not want an interrupt to trigger.
-     * We need to disable it before kicking off the operation.
-     */
-    if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_POLLING)  {
-        IntDisable(INT_CRYPTO_RESULT_AVAIL_IRQ);
-    }
-    else {
-        /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
-         * drivers and they all need to coexist. Whenever a driver starts an operation, it
-         * registers its HWI callback with the OS.
-         */
-        HwiP_setFunc(&CryptoResourceCC26XX_hwi, SHA2_hwiFxn, (uintptr_t)handle);
-        HwiP_setPriority(INT_CRYPTO_RESULT_AVAIL_IRQ, hwAttrs->intPriority);
-
-        IntPendClear(INT_CRYPTO_RESULT_AVAIL_IRQ);
-        IntEnable(INT_CRYPTO_RESULT_AVAIL_IRQ);
-    }
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
 
     object->returnStatus = SHA2_STATUS_SUCCESS;
     object->operationCanceled = false;
@@ -508,6 +589,16 @@ int_fast16_t SHA2_finalize(SHA2_Handle handle, void *digest) {
     else if (object->bytesInBuffer > 0) {
         uint32_t totalLength = object->bytesProcessed + object->bytesInBuffer;
         uint32_t chunkLength = object->bytesInBuffer;
+
+        /* SHA2ComputeIntermediateHash and SHA2ComputeFinalHash read out and writes
+         * back intermediate digest sizes of the the final digest size. For
+         * SHA-224 and SHA-384, this produces incorrect results. Instead,
+         * the digest size of SHA-256 and SHA-512 should be used instead.
+         * This is why we are writing the digest to the accelerator here
+         * first to cover the difference in digest sizes.
+         */
+        SHA2SetDigest(object->digest,
+                      intermediateDigestSizeTable[object->hashType]);
 
         SHA2ComputeFinalHash(object->buffer,
                              digest,
@@ -554,49 +645,57 @@ int_fast16_t SHA2_finalize(SHA2_Handle handle, void *digest) {
          */
         memcpy(digest, object->digest, digestSizeTable[object->hashType]);
 
+        /* SHA2ComputeIntermediateHash and SHA2ComputeFinalHash read out and writes
+         * back intermediate digest sizes of the the final digest size. For
+         * SHA-224 and SHA-384, this produces incorrect results. Instead,
+         * the digest size of SHA-256 and SHA-512 should be used instead.
+         * This is why we are writing the digest to the accelerator here
+         * first to cover the difference in digest sizes.
+         */
+        SHA2SetDigest(object->digest,
+                      intermediateDigestSizeTable[object->hashType]);
+
         SHA2ComputeIntermediateHash(object->buffer,
-                               digest,
-                               hashModeTable[object->hashType],
-                               blockSize);
+                                    digest,
+                                    hashModeTable[object->hashType],
+                                    blockSize);
     }
 
     HwiP_restore(key);
 
-    return SHA2_waitForResult(handle);
+    return SHA2CC26X2_waitForResult(handle);
 }
 
 /*
  *  ======== SHA2_hashData ========
  */
-int_fast16_t SHA2_hashData(SHA2_Handle handle, const void *data, size_t length, void *digest) {
+int_fast16_t SHA2_hashData(SHA2_Handle handle,
+                           const void *data,
+                           size_t length,
+                           void *digest) {
+
+    /* Try and obtain access to the crypto module */
+    if (SHA2CC26X2_waitForAccess(handle) != SemaphoreP_OK) {
+        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
+    }
+
+    return SHA2CC26X2_hashData(handle, data, length, digest);
+}
+
+/*
+ *  ======== SHA2CC26X2_hashData ========
+ */
+static int_fast16_t SHA2CC26X2_hashData(SHA2_Handle handle,
+                                        const void *data,
+                                        size_t length,
+                                        void *digest) {
     SHA2CC26X2_Object *object = handle->object;
     SHA2CC26X2_HWAttrs const *hwAttrs = handle->hwAttrs;
     uintptr_t key;
 
-    /* Try and obtain access to the crypto module */
-    if (SHA2_waitForAccess(handle) != SemaphoreP_OK) {
-        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
-    }
-
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
-    /* If we are in SHA2_RETURN_BEHAVIOR_POLLING, we do not want an interrupt to trigger.
-     * We need to disable it before kicking off the operation.
-     */
-    if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_POLLING)  {
-        IntDisable(INT_CRYPTO_RESULT_AVAIL_IRQ);
-    }
-    else {
-        /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
-         * drivers and they all need to coexist. Whenever a driver starts an operation, it
-         * registers its HWI callback with the OS.
-         */
-        HwiP_setFunc(&CryptoResourceCC26XX_hwi, SHA2_hwiFxn, (uintptr_t)handle);
-        HwiP_setPriority(INT_CRYPTO_RESULT_AVAIL_IRQ, hwAttrs->intPriority);
-
-        IntPendClear(INT_CRYPTO_RESULT_AVAIL_IRQ);
-        IntEnable(INT_CRYPTO_RESULT_AVAIL_IRQ);
-    }
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
 
     SHA2_operationType = SHA2_OperationType_SingleStep;
     SHA2_dataBytesRemaining = 0;
@@ -619,7 +718,276 @@ int_fast16_t SHA2_hashData(SHA2_Handle handle, const void *data, size_t length, 
     object->operationInProgress = true;
     HwiP_restore(key);
 
-    return SHA2_waitForResult(handle);
+    return SHA2CC26X2_waitForResult(handle);
+}
+
+/*
+ *  ======== SHA2CC26X2_setupHmac ========
+ *
+ *  This function starts an HMAC operation and computes as much of the
+ *  intermediate results as it can using only the key.
+ *
+ *  HMAC requires concatenation of intermediate results and the application's
+ *  message. We do not have the memory to do that kind of concatenation nor
+ *  would it be runtime efficient to do that much copying.
+ *  Instead, we use segmented hashes to start the computation of the hashes
+ *  and then add in each segment without moving it in memory.
+ *
+ *  We can compute all operations where the keying material is required.
+ *  That way, we do not need to store the intermediate keying material
+ *  for future use but only store the intermediate hash result.
+ *
+ *  - It computes the intermediate key, k0 based on the input key's length.
+ *  - It starts a segmented hash with the k0^ipad part of
+ *    H(k0  ^ipad || message)
+ *      - The intermediate output is saved by the SHA2 driver as usual in
+ *        SHA2CC26X2_Object.digest
+ *  - It starts a segmented hash of the k0^opad part of
+ *    H(k0 ^ opad || H(k0 ^ ipad || message))
+ *      - The intermediate output is saved in SHA2CC26X2_Object.hmacDigest
+ */
+int_fast16_t SHA2CC26X2_setupHmac(SHA2_Handle handle, CryptoKey *key) {
+    uint8_t xorBuffer[SHA2CC26X2_MAX_BLOCK_SIZE_BYTES];
+    SHA2CC26X2_Object *object           = handle->object;
+    SHA2CC26X2_HWAttrs const *hwAttrs   = handle->hwAttrs;
+    size_t keyLength                    = key->u.plaintext.keyLength;
+    uint8_t *keyingMaterial             = key->u.plaintext.keyMaterial;
+
+    /* Since we will be making multiple calls to SHA2 driver APIs, we need
+     * to ensure we retain access across those calls. Otherwise another
+     * client could come in and start an operation while our later ones are
+     * ongoing. This is because the first SHA2 driver API call would
+     * release the access semaphore.
+     */
+    object->retainAccessCounter++;
+
+    /* Put the driver into polling mode. This allows us to implement a linear
+     * flow of other calls to SHA2 APIs. Otherwise, we would need to construct
+     * a state machine executed and further kicked off from a registered
+     * callback function if SHA2_RETURN_BEHAVIOR_CALLBACK were used.
+     * This is highly inefficient in terms of code size, complexity, and
+     * runtime as the inputs to the hash function are short.
+     */
+    SHA2_ReturnBehavior originalReturnBehavior = object->returnBehavior;
+    object->returnBehavior = SHA2_RETURN_BEHAVIOR_POLLING;
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
+
+    /* Reset segmented processing state to ensure we start a fresh
+     * transaction
+     */
+    object->bytesInBuffer = 0;
+    object->bytesProcessed = 0;
+
+    /* Prepare the buffer of the derived key. We set the entire buffer to 0x00
+     * so we do not need to pad it to the block size after copying the keying
+     * material provided or the hash thereof there.
+     */
+    memset(xorBuffer, 0x00, blockSizeTable[object->hashType]);
+
+    /* If the keying material fits in the derived key buffer, copy it there.
+     * Otherwise, we need to hash it first and copy the digest there. Since
+     * We filled the entire buffer with 0x00, we do not need to pad to the block
+     * size.
+     */
+    if (keyLength <= blockSizeTable[object->hashType]) {
+        memcpy(xorBuffer, keyingMaterial, keyLength);
+    }
+    else {
+        SHA2CC26X2_hashData(handle,
+                            keyingMaterial,
+                            keyLength,
+                            xorBuffer);
+    }
+
+    /* Compute k0 ^ ipad */
+    SHA2CC26X2_xorBufferWithByte(xorBuffer,
+                                 blockSizeTable[object->hashType],
+                                 HMAC_IPAD_BYTE);
+
+    /* Start a hash of k0 ^ ipad.
+     * The intermediate result will be stored in the object for later
+     * use when the application calls SHA2_addData on its actual message.
+     */
+    SHA2CC26X2_addData(handle,
+                       xorBuffer,
+                       blockSizeTable[object->hashType]);
+
+
+    /* Undo k0 ^ ipad to reconstruct k0. Use the memory of k0 instead
+     * of allocating a new copy on the stack to save RAM.
+     */
+    SHA2CC26X2_xorBufferWithByte(xorBuffer,
+                                 blockSizeTable[object->hashType],
+                                 HMAC_IPAD_BYTE);
+
+    /* Compute k0 ^ opad. */
+    SHA2CC26X2_xorBufferWithByte(xorBuffer,
+                                 blockSizeTable[object->hashType],
+                                 HMAC_OPAD_BYTE);
+
+    /* Start a hash of k0 ^ opad.
+     * We are using driverlib here since using the interal SHA2 driver APIs
+     * would corrupt our previously stored intermediate results.
+     * This lets us save a second intermediate result.
+     */
+    SHA2ComputeInitialHash(xorBuffer,
+                           object->hmacDigest,
+                           hashModeTable[object->hashType],
+                           blockSizeTable[object->hashType]);
+
+    SHA2WaitForIRQFlags(SHA2_RESULT_RDY | SHA2_DMA_BUS_ERR);
+
+    SHA2GetDigest(object->hmacDigest,
+                  intermediateDigestSizeTable[object->hashType]);
+
+    /* Restore original return behaviour */
+    object->returnBehavior = originalReturnBehavior;
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
+
+    object->retainAccessCounter--;
+    if (object->retainAccessCounter == 0) {
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+
+        /* Only call callbackFxn if this is going to be the last sub-operation
+         * of this HMAC call.
+         */
+        if (object->returnBehavior == SHA2_RETURN_BEHAVIOR_CALLBACK) {
+            /* Call the callback function provided by the application. */
+            object->callbackFxn(handle, SHA2_STATUS_SUCCESS);
+        }
+    }
+
+    return SHA2_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== SHA2_setupHmac ========
+ */
+int_fast16_t SHA2_setupHmac(SHA2_Handle handle, CryptoKey *key) {
+    /* Try and obtain access to the crypto module.
+     * We will be keeping this for multiple operations
+     */
+    if (SHA2CC26X2_waitForAccess(handle) != SemaphoreP_OK) {
+        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
+    }
+
+    return SHA2CC26X2_setupHmac(handle, key);
+}
+
+/*
+ *  ======== SHA2CC26X2_finalizeHmac ========
+ *
+ *  This function completes the HMAC operation once all application data
+ *  has been added through SHA_addData().
+ *
+ *  - It finalizes  H((k0 ^ ipad) || data)
+ *  - It adds H((k0 ^ ipad) || data) to the previously started hash that already
+ *    includes k0 ^ opad.
+ *  - It finalizes H(k0 ^ opad || H((k0 ^ ipad) || data))
+ */
+int_fast16_t SHA2CC26X2_finalizeHmac(SHA2_Handle handle, void *hmac) {
+    uint8_t tmpDigest[SHA2CC26X2_MAX_DIGEST_LENGTH_BYTES];
+    SHA2CC26X2_Object *object           = handle->object;
+    SHA2CC26X2_HWAttrs const *hwAttrs   = handle->hwAttrs;
+
+    SHA2_ReturnBehavior originalReturnBehavior = object->returnBehavior;
+    object->returnBehavior = SHA2_RETURN_BEHAVIOR_POLLING;
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
+
+    /* Retain access over multiple SHA2 driver calls */
+    object->retainAccessCounter++;
+
+    /* Finalize H((k0 ^ ipad) || data) */
+    SHA2CC26X2_finalize(handle, tmpDigest);
+
+    memcpy(object->digest,
+           object->hmacDigest,
+           intermediateDigestSizeTable[object->hashType]);
+
+    object->bytesProcessed = blockSizeTable[object->hashType];
+
+    SHA2_operationType = SHA2_OperationType_MultiStep;
+
+    /* Add the temporary digest computed earlier to the current digest */
+    SHA2CC26X2_addData(handle,
+                       tmpDigest,
+                       digestSizeTable[object->hashType]);
+
+    object->returnBehavior = originalReturnBehavior;
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
+
+    object->retainAccessCounter--;
+
+    /* Finalize H(k0 ^ opad || H((k0 ^ ipad) || data))
+     * Posting of access semaphore and other cleanup handled by
+     * SHA2CC26X2_finalize call
+     */
+    SHA2CC26X2_finalize(handle, hmac);
+
+    return SHA2_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== SHA2_finalizeHmac ========
+ */
+int_fast16_t SHA2_finalizeHmac(SHA2_Handle handle, void *hmac) {
+    /* Try and obtain access to the crypto module.
+     * We will be keeping this for multiple operations
+     */
+    if (SHA2CC26X2_waitForAccess(handle) != SemaphoreP_OK) {
+        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
+    }
+
+    return SHA2CC26X2_finalizeHmac(handle, hmac);
+}
+
+/*
+ *  ======== SHA2_hmac ========
+ *
+ *  This is practically just a convenience function. Because of the need for
+ *  segmented hashes to construct the HMAC without actually allocating memory
+ *  to concatenate intermediate results and the message, this function is not
+ *  actually faster than an application using the segmented APIs.
+ */
+int_fast16_t SHA2_hmac(SHA2_Handle handle,
+                       CryptoKey *key,
+                       const void* data,
+                       size_t size,
+                       void *hmac) {
+    SHA2CC26X2_Object *object           = handle->object;
+    SHA2CC26X2_HWAttrs const *hwAttrs   = handle->hwAttrs;
+
+    /* Try and obtain access to the crypto module.
+     * We will be keeping this for multiple operations
+     */
+    if (SHA2CC26X2_waitForAccess(handle) != SemaphoreP_OK) {
+        return SHA2_STATUS_RESOURCE_UNAVAILABLE;
+    }
+
+    /* Retain access over multiple SHA2 driver calls */
+    object->retainAccessCounter++;
+
+    SHA2CC26X2_setupHmac(handle, key);
+
+    /* For now, only polling return behaviour is supported for the main data
+     * segment
+     * */
+    SHA2_ReturnBehavior originalReturnBehavior = object->returnBehavior;
+    object->returnBehavior = SHA2_RETURN_BEHAVIOR_POLLING;
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
+
+    /* Add the input message to the hash */
+    SHA2CC26X2_addData(handle, data, size);
+
+    object->returnBehavior = originalReturnBehavior;
+    SHA2CC26X2_configureInterrupts(handle, object, hwAttrs, SHA2_hwiFxn);
+
+    /* Allow the SHA2CC26X2_finalizeHmac() call below to release the access
+     * semaphore when it completes;
+     */
+    object->retainAccessCounter--;
+
+    return SHA2CC26X2_finalizeHmac(handle, hmac);
 }
 
 /*
@@ -670,6 +1038,7 @@ int_fast16_t SHA2_cancelOperation(SHA2_Handle handle) {
     object->bytesProcessed = 0;
     object->operationCanceled = true;
     object->returnStatus = SHA2_STATUS_CANCELED;
+    object->retainAccessCounter = 0;
 
     HwiP_restore(key);
 

@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       hw_chip_def.h
-*  Revised:        2017-06-26 09:33:33 +0200 (Mon, 26 Jun 2017)
-*  Revision:       49227
+*  Revised:        2020-06-29 18:59:15 +0200 (Mon, 29 Jun 2020)
+*  Revision:       57865
 *
 *  Description:    Defines for device properties.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -169,28 +169,38 @@
  *  -#  Run sharedSecret through a key derivation function to compute the shared
  *     symmetric session key.
  *
- * ## General usage #
- * The API expects elliptic curves as defined in ti/drivers/cryptoutils/ecc/ECCParams.h.
- * Several commonly used curves are provided. Check the device-specific ECJPAKE documentation
- * for curve type (short Weierstrass, Montgomery, Edwards) support for your device.
- * ECJPAKE support for a curve type on a device does not imply curve-type support for
- * other ECC schemes.
+ * ## Key Formatting
+ * The ECJPAKE API expects the private and public keys to be formatted in octet
+ * string format. The details of octet string formatting can be found in
+ * SEC 1: Elliptic Curve Cryptography.
  *
- * Public keys and shared secrets are points on an elliptic curve. These points can
- * be expressed in several ways. The most common one is in affine coordinates as an
- * X,Y pair.
- * This API uses points expressed in affine coordinates.
- * The point is stored as a concatenated array of X followed by Y in a location
- * described by its CryptoKey.
+ * Private keys and V's are formatted as big-endian integers of the same length
+ * as the curve length.
+ *
+ * Public keys, public V's, generator points, and shared secrets are points on
+ * an elliptic curve. These points can be expressed in several ways.
+ * This API uses points expressed in uncompressed affine coordinates by default.
+ * The octet string format requires a formatting byte in the first byte of the
+ * public key. When using uncompressed affine coordinates, this is the value
+ * 0x04.
+ * The point itself is stored as a concatenated array of X followed by Y.
+ * X and Y are big-endian. Some implementations do not require or yield
+ * the Y coordinate for ECJPAKE on certain curves. It is recommended that the full
+ * keying material buffer of twice the curve param length is used to facilitate
+ * code-reuse. Implementations that do not use the Y coordinate will zero-out
+ * the Y-coordinate whenever they write a point to the CryptoKey.
  *
  * This API accepts and returns the keying material of public keys according
  * to the following table:
  *
- * | Curve Type         | Keying Material Array | Array Length              |
- * |--------------------|-----------------------|---------------------------|
- * | Short Weierstrass  | [X, Y]                | 2 * Curve Param Length    |
- * | Montgomery         | [X, Y]                | 2 * Curve Param Length    |
- * | Edwards            | [X, Y]                | 2 * Curve Param Length    |
+ * | Curve Type         | Keying Material Array | Array Length               |
+ * |--------------------|-----------------------|----------------------------|
+ * | Short Weierstrass  | [0x04, X, Y]          | 1 + 2 * Curve Param Length |
+ * | Montgomery         | [0x04, X, Y]          | 1 + 2 * Curve Param Length |
+ * | Edwards            | [0x04, X, Y]          | 1 + 2 * Curve Param Length |
+ *
+ * The r component of the ZKP signature, hash, and preSharedSecret also all
+ * use the octet string format. They are interpreted as big-endian integers.
  *
  * @anchor ti_drivers_ECJPAKE_Synopsis
  * ## Synopsis
@@ -255,7 +265,7 @@
  *
  * ECJPAKE_OperationVerifyZKP_init(&operationVerifyZKP);
  * operationVerifyZKP.curve                = &ECCParams_NISTP256;
- * operationVerifyZKP.theirGenerator       = &nistP256GeneratorCryptoKey;
+ * operationVerifyZKP.theirGenerator       = NULL;
  * operationVerifyZKP.theirPublicKey       = &theirPublicCryptoKey1;
  * operationVerifyZKP.theirPublicV         = &theirPublicCryptoV1;
  * operationVerifyZKP.hash                 = theirHash1;
@@ -265,7 +275,7 @@
  *
  * ECJPAKE_OperationVerifyZKP_init(&operationVerifyZKP);
  * operationVerifyZKP.curve                = &ECCParams_NISTP256;
- * operationVerifyZKP.theirGenerator       = &nistP256GeneratorCryptoKey;
+ * operationVerifyZKP.theirGenerator       = NULL;
  * operationVerifyZKP.theirPublicKey       = &theirPublicCryptoKey2;
  * operationVerifyZKP.theirPublicV         = &theirPublicCryptoV2;
  * operationVerifyZKP.hash                 = theirHash2;
@@ -342,52 +352,53 @@
  *
  * @code
  *
+ * #define NISTP256_CURVE_LENGTH_BYTES 32
+ * #define OCTET_STRING_OFFSET 1
+ * #define NISTP256_PRIVATE_KEY_LENGTH_BYTES NISTP256_CURVE_LENGTH_BYTES
+ * #define NISTP256_PUBLIC_KEY_LENGTH_BYTES (NISTP256_CURVE_LENGTH_BYTES * 2 + OCTET_STRING_OFFSET)
  *
  * // My fixed keying material
- * uint8_t myPrivateKeyMaterial1[32];
- * uint8_t myPrivateKeyMaterial2[32];
- * uint8_t myPrivateVMaterial1[32];
- * uint8_t myPrivateVMaterial2[32];
- * uint8_t myPrivateVMaterial3[32];
- * uint8_t myHash1[32];
- * uint8_t myHash2[32];
- * uint8_t myHash3[32];
+ * uint8_t myPrivateKeyMaterial1[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myPrivateKeyMaterial2[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myPrivateVMaterial1[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myPrivateVMaterial2[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myPrivateVMaterial3[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myHash1[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myHash2[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myHash3[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
  * // My derived keying material
- * uint8_t myR1[32];
- * uint8_t myR2[32];
- * uint8_t myR3[32];
- * uint8_t myPublicKeyMaterial1[64];
- * uint8_t myPublicKeyMaterial2[64];
- * uint8_t myPublicVMaterial1[64];
- * uint8_t myPublicVMaterial2[64];
- * uint8_t myPublicVMaterial3[64];
- * uint8_t myCombinedPublicKeyMaterial1[64];
- * uint8_t myCombinedPrivateKeyMaterial1[32];
- * uint8_t myGenerator[64];
+ * uint8_t myR1[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myR2[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myR3[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myPublicKeyMaterial1[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t myPublicKeyMaterial2[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t myPublicVMaterial1[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t myPublicVMaterial2[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t myPublicVMaterial3[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t myCombinedPublicKeyMaterial1[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t myCombinedPrivateKeyMaterial1[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t myGenerator[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
  *
  * // Their fixed keying material
- * uint8_t theirHash1[32];
- * uint8_t theirHash2[32];
- * uint8_t theirHash3[32];
+ * uint8_t theirHash1[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t theirHash2[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t theirHash3[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
  *
  * // Their derived keying material
- * uint8_t theirR1[32];
- * uint8_t theirR2[32];
- * uint8_t theirR3[32];
- * uint8_t theirPublicKeyMaterial1[64];
- * uint8_t theirPublicKeyMaterial2[64];
- * uint8_t theirPublicVMaterial1[64];
- * uint8_t theirPublicVMaterial2[64];
- * uint8_t theirPublicVMaterial3[64];
- * uint8_t theirCombinedPublicKeyMaterial1[64];
- * uint8_t theirGenerator[64];
+ * uint8_t theirR1[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t theirR2[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t theirR3[NISTP256_PRIVATE_KEY_LENGTH_BYTES];
+ * uint8_t theirPublicKeyMaterial1[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t theirPublicKeyMaterial2[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t theirPublicVMaterial1[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t theirPublicVMaterial2[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t theirPublicVMaterial3[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t theirCombinedPublicKeyMaterial1[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
+ * uint8_t theirGenerator[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
  *
  * //  Shared secrets
- * uint8_t preSharedSecretKeyingMaterial[32] = "This is our password";
- * uint8_t sharedSecretKeyingMaterial1[64];
- *
- * // CryptoKeys
- * CryptoKey nistP256GeneratorCryptoKey;
+ * uint8_t preSharedSecretKeyingMaterial[NISTP256_PRIVATE_KEY_LENGTH_BYTES] = "This is our password";
+ * uint8_t sharedSecretKeyingMaterial1[NISTP256_PUBLIC_KEY_LENGTH_BYTES];
  *
  * // Pre-Shared Secret Key
  * CryptoKey preSharedSecretCryptoKey;
@@ -421,7 +432,7 @@
  * CryptoKey theirGeneratorKey;
  *
  * // NISTP256 generator
- * CryptoKeyPlaintext_initKey(&nistP256GeneratorCryptoKey, ECCParams_NISTP256.generatorX, sizeof(ECCParams_NISTP256.length * 2));
+ * CryptoKeyPlaintext_initKey(NULL, ECCParams_NISTP256.generatorX, sizeof(ECCParams_NISTP256.length * 2));
  *
  * // Pre-shared secret
  * CryptoKeyPlaintext_initKey(&preSharedSecretCryptoKey, preSharedSecretKeyingMaterial, sizeof(preSharedSecretKeyingMaterial));
@@ -432,6 +443,10 @@
  *
  *
  * // My keys
+ *
+ * // This example assumes that the private keying material buffers already
+ * // contains random bytes. Otherwise, we need to use a TRNG or DRBG to fill
+ * // them after initialising the CryptoKeys.
  * CryptoKeyPlaintext_initKey(&myPrivateCryptoKey1, myPrivateKeyMaterial1, sizeof(myPrivateKeyMaterial1));
  * CryptoKeyPlaintext_initKey(&myPrivateCryptoKey2, myPrivateKeyMaterial2, sizeof(myPrivateKeyMaterial2));
  * CryptoKeyPlaintext_initKey(&myPrivateCryptoV1, myPrivateVMaterial1, sizeof(myPrivateVMaterial1));
@@ -523,7 +538,7 @@
  *
  * ECJPAKE_OperationVerifyZKP_init(&operationVerifyZKP);
  * operationVerifyZKP.curve                = &ECCParams_NISTP256;
- * operationVerifyZKP.theirGenerator       = &nistP256GeneratorCryptoKey;
+ * operationVerifyZKP.theirGenerator       = NULL;
  * operationVerifyZKP.theirPublicKey       = &theirPublicCryptoKey1;
  * operationVerifyZKP.theirPublicV         = &theirPublicCryptoV1;
  * operationVerifyZKP.hash                 = theirHash1;
@@ -537,7 +552,7 @@
  *
  * ECJPAKE_OperationVerifyZKP_init(&operationVerifyZKP);
  * operationVerifyZKP.curve                = &ECCParams_NISTP256;
- * operationVerifyZKP.theirGenerator       = &nistP256GeneratorCryptoKey;
+ * operationVerifyZKP.theirGenerator       = NULL;
  * operationVerifyZKP.theirPublicKey       = &theirPublicCryptoKey2;
  * operationVerifyZKP.theirPublicV         = &theirPublicCryptoV2;
  * operationVerifyZKP.hash                 = theirHash2;
@@ -633,16 +648,16 @@
 #ifndef ti_drivers_ECJPAKE__include
 #define ti_drivers_ECJPAKE__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 #include <ti/drivers/cryptoutils/ecc/ECCParams.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*!
  * Common ECJPAKE status code reservation offset.
@@ -738,9 +753,28 @@ extern "C" {
 #define ECJPAKE_STATUS_CANCELED (-9)
 
 /*!
+ *  @brief ECJPAKE Global configuration
+ *
+ *  The ECJPAKE_Config structure contains a set of pointers used to characterize
+ *  the ECJPAKE driver implementation.
+ *
+ *  This structure needs to be defined before calling ECJPAKE_init() and it must
+ *  not be changed thereafter.
+ *
+ *  @sa     ECJPAKE_init()
+ */
+typedef struct {
+    /*! Pointer to a driver specific data object */
+    void               *object;
+
+    /*! Pointer to a driver specific hardware attributes structure */
+    void         const *hwAttrs;
+} ECJPAKE_Config;
+
+/*!
  *  @brief  A handle that is returned from an ECJPAKE_open() call.
  */
-typedef struct ECJPAKE_Config   *ECJPAKE_Handle;
+typedef ECJPAKE_Config *ECJPAKE_Handle;
 
 /*!
  * @brief   The way in which ECJPAKE function calls return after performing an
@@ -779,25 +813,6 @@ typedef enum {
                                              *   are available after the function returns.
                                              */
 } ECJPAKE_ReturnBehavior;
-
-/*!
- *  @brief ECJPAKE Global configuration
- *
- *  The ECJPAKE_Config structure contains a set of pointers used to characterize
- *  the ECJPAKE driver implementation.
- *
- *  This structure needs to be defined before calling ECJPAKE_init() and it must
- *  not be changed thereafter.
- *
- *  @sa     ECJPAKE_init()
- */
-typedef struct ECJPAKE_Config {
-    /*! Pointer to a driver specific data object */
-    void               *object;
-
-    /*! Pointer to a driver specific hardware attributes structure */
-    void         const *hwAttrs;
-} ECJPAKE_Config;
 
 /*!
  *  @brief  Struct containing the parameters required to generate the first round of keys.
@@ -895,6 +910,9 @@ typedef struct {
                                                                  *   be the default generator of the curve.
                                                                  *   In the second round, this parameter is
                                                                  *   computed by ECJPAKE_roundTwoGenerateKeys().
+                                                                 *
+                                                                 *   Formatted as a public key. If  NULL, default
+                                                                 *   generator point from @c curve is used.
                                                                  */
     const CryptoKey                 *theirPublicKey;            /*!< A CryptoKey describing the public key
                                                                  *   received from the other party that the
@@ -948,12 +966,14 @@ typedef struct {
                                                                  *   After it is computed, the keying material will
                                                                  *   be written to the location described in the
                                                                  *   CryptoKey.
+                                                                 *   Formatted as a public key.
                                                                  */
     CryptoKey                       *myNewGenerator;            /*!< A blank CryptoKey describing the generator point
                                                                  *   used by the application in the second round.
                                                                  *   After it is computed, the keying material will
                                                                  *   be written to the location described in the
                                                                  *   CryptoKey.
+                                                                 *   Formatted as a public key.
                                                                  */
     CryptoKey                       *myCombinedPrivateKey;      /*!< A pointer to a public ECC key. Must
                                                                  *   be of the same length as other params
@@ -1005,7 +1025,7 @@ typedef struct {
                                                                  *   the second round ZKP signature.
                                                                  */
     CryptoKey                       *sharedSecret;              /*!< The shared secret that is identical between both
-                                                                 *   parties.
+                                                                 *   parties. Formatted as a public key.
                                                                  */
 } ECJPAKE_OperationComputeSharedSecret;
 
@@ -1331,6 +1351,31 @@ int_fast16_t ECJPAKE_computeSharedSecret(ECJPAKE_Handle handle, ECJPAKE_Operatio
  *  @retval #ECJPAKE_STATUS_ERROR                 The operation was not canceled. There may be no operation to cancel.
  */
 int_fast16_t ECJPAKE_cancelOperation(ECJPAKE_Handle handle);
+
+/**
+ *  @brief  Constructs a new ECJPAKE object
+ *
+ *  Unlike #ECJPAKE_open(), #ECJPAKE_construct() does not require the hwAttrs and
+ *  object to be allocated in a #ECJPAKE_Config array that is indexed into.
+ *  Instead, the #ECJPAKE_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #ECJPAKE_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #ECJPAKE_Params to configure the driver instance.
+ *
+ *  @return        Returns a #ECJPAKE_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+ECJPAKE_Handle ECJPAKE_construct(ECJPAKE_Config *config, const ECJPAKE_Params *params);
 
 #ifdef __cplusplus
 }

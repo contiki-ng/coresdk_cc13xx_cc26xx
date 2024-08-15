@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (c) 2017-2019 Texas Instruments Incorporated - http://www.ti.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -63,6 +63,10 @@ extern "C" {
 #define EAGAIN                  11
 #endif
 
+#ifndef EALREADY
+#define EALREADY                120
+#endif
+
 #ifndef EBADF
 #define EBADF                   9
 #endif
@@ -81,6 +85,10 @@ extern "C" {
 
 #ifndef EFAULT
 #define EFAULT                  14
+#endif
+
+#ifndef EHOSTUNREACH
+#define EHOSTUNREACH            118
 #endif
 
 #ifndef EINVAL
@@ -119,6 +127,18 @@ extern "C" {
 #define EPERM                   1
 #endif
 
+#ifndef EPIPE
+#define EPIPE                   32
+#endif
+
+#ifndef EPROTO
+#define EPROTO                  71
+#endif
+
+#ifndef ERANGE
+#define ERANGE                  34
+#endif
+
 #ifndef ETIMEDOUT
 #define ETIMEDOUT               145
 #endif
@@ -135,8 +155,16 @@ extern "C" {
 #define EAFNOSUPPORT            106
 #endif
 
+#ifndef ECONNABORTED
+#define ECONNABORTED            113
+#endif
+
 #ifndef ECONNREFUSED
 #define ECONNREFUSED            111
+#endif
+
+#ifndef ECONNRESET
+#define ECONNRESET              104
 #endif
 
 #ifndef EDESTADDRREQ
@@ -151,6 +179,10 @@ extern "C" {
 #define ENETDOWN                115
 #endif
 
+#ifndef ENETRESET
+#define ENETRESET               102
+#endif
+
 #ifndef ENETUNREACH
 #define ENETUNREACH             114
 #endif
@@ -159,12 +191,20 @@ extern "C" {
 #define ENOBUFS                 105
 #endif
 
+#ifndef ENODEV
+#define ENODEV                  19
+#endif
+
 #ifndef ENOPROTOOPT
 #define ENOPROTOOPT             109
 #endif
 
 #ifndef ENOTCONN
 #define ENOTCONN                128
+#endif
+
+#ifndef ENOTSOCK
+#define ENOTSOCK                108
 #endif
 
 #ifndef EOPNOTSUPP

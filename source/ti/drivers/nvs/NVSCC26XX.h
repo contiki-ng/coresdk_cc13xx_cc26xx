@@ -163,9 +163,9 @@ extern const NVS_FxnTable NVSCC26XX_fxnTable;
  *  content (such as .text or .const) in the flash regions defined by the
  *  this hardware attributes structure.
  *
- *  For CCS and IAR tools, defining and reserving flash memory regions can
- *  be done entirely within the Board.c file. For GCC, additional content is
- *  required in the application's linker script to achieve the same
+ *  For CCS and IAR tools, defining and reserving flash memory regions can be
+ *  done entirely within the ti_drivers_config.c file. For GCC, additional
+ *  content is required in the application's linker script to achieve the same
  *  result.
  *
  *  The example below defines a char array @p flashBuf. Preprocessor logic is

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,6 +42,11 @@
 
 #include <ti/drivers/AESECB.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+#include <ti/drivers/dpl/DebugP.h>
+
+/* Extern globals (board file) */
+extern const AESECB_Config AESECB_config[];
+extern const uint_least8_t AESECB_count;
 
 const AESECB_Params AESECB_defaultParams = {
     .returnBehavior = AESECB_RETURN_BEHAVIOR_BLOCKING,
@@ -62,4 +67,14 @@ void AESECB_Params_init(AESECB_Params *params){
  */
 void AESECB_Operation_init(AESECB_Operation *operationStruct) {
     memset(operationStruct, 0x00, sizeof(AESECB_Operation));
+}
+
+/*
+ *  ======== AESECB_open ========
+ */
+AESECB_Handle AESECB_open(uint_least8_t index, const AESECB_Params *params) {
+    DebugP_assert(index < AESECB_count);
+
+    AESECB_Config *config = (AESECB_Config*)&AESECB_config[index];
+    return AESECB_construct(config, params);
 }

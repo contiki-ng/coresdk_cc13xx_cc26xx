@@ -298,7 +298,7 @@
  *  transaction.rxBuf = rxBuf;
  *
  *  // Open the SPI and perform the transfer
- *  handle = SPI_open(Board_SPI, &params);
+ *  handle = SPI_open(CONFIG_SPI, &params);
  *  SPI_transfer(handle, &transaction);
  *  @endcode
  *
@@ -306,7 +306,9 @@
  *  This use case will perform a transfer in #SPI_MODE_BLOCKING until the wanted amount of bytes is
  *  transferred or until chip select is deasserted by the SPI master.
  *  This SPI_transfer() call can be used when unknown amount of bytes shall
- *  be transferred. Note: The partial return is also possible in #SPI_MODE_CALLBACK mode.
+ *  be transferred.
+ *  Note: The partial return is also possible in #SPI_MODE_CALLBACK mode.
+ *  Note: Polling transfers are not available when using return partial mode.
  *  @code
  *  SPI_Handle handle;
  *  SPI_Params params;
@@ -325,7 +327,7 @@
  *  transaction.rxBuf = rxBuf;
  *
  *  // Open the SPI and initiate the partial read
- *  handle = SPI_open(Board_SPI, &params);
+ *  handle = SPI_open(CONFIG_SPI, &params);
  *
  *  // Enable RETURN_PARTIAL
  *  SPI_control(handle, SPICC26X2DMA_RETURN_PARTIAL_ENABLE, NULL);
@@ -367,7 +369,7 @@
  *      transaction.rxBuf = buf;
  *
  *      // Open the SPI and initiate the first transfer
- *      handle = SPI_open(Board_SPI, &params);
+ *      handle = SPI_open(CONFIG_SPI, &params);
  *      SPI_transfer(handle, &transaction);
  *
  *      // Wait forever
@@ -397,7 +399,7 @@
  *  transaction.rxBuf = rxBuf;
  *
  *  // Open the SPI and perform the transfer
- *  handle = SPI_open(Board_SPI, &params);
+ *  handle = SPI_open(CONFIG_SPI, &params);
  *  SPI_transfer(handle, &transaction);
  *  @endcode
  *
@@ -409,14 +411,14 @@
  *  chip select pin.
  *
  *  @code
- *  // From board.c
+ *  // From ti_drivers_config.c
  *  PIN_Config BoardGpioInitTable[] = {
- *      Board_CSN_0   | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH   | PIN_PUSHPULL,   // Ensure SPI slave 0 is not selected
- *      Board_CSN_1   | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH   | PIN_PUSHPULL    // Ensure SPI slave 1 is not selected
+ *      CONFIG_CSN_0   | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH   | PIN_PUSHPULL,   // Ensure SPI slave 0 is not selected
+ *      CONFIG_CSN_1   | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH   | PIN_PUSHPULL    // Ensure SPI slave 1 is not selected
  *  }
  *
  *  const SPICC26X2DMA_HWAttrs SPICC26X2DMAHWAttrs[CC2650_SPICOUNT] = {
- *  {   // Use SPI0 module with default chip select on Board_CSN_0
+ *  {   // Use SPI0 module with default chip select on CONFIG_CSN_0
  *      .baseAddr = SSI0_BASE,
  *      .intNum = INT_SSI0,
  *      .intPriority = ~0,
@@ -425,10 +427,10 @@
  *      .powerMngrId = PERIPH_SSI0,
  *      .rxChannelIndex = UDMA_CHAN_SSI0_RX,
  *      .txChannelIndex = UDMA_CHAN_SSI0_TX,
- *      .mosiPin = Board_SPI0_MOSI,
- *      .misoPin = Board_SPI0_MISO,
- *      .clkPin = Board_SPI0_CLK,
- *      .csnPin = Board_CSN_0
+ *      .mosiPin = CONFIG_SPI0_MOSI,
+ *      .misoPin = CONFIG_SPI0_MISO,
+ *      .clkPin = CONFIG_SPI0_CLK,
+ *      .csnPin = CONFIG_CSN_0
  *  }
  *
  *  // From your_application.c
@@ -437,7 +439,7 @@
  *      SPI_Handle handle;
  *      SPI_Params params;
  *      SPI_Transaction transaction;
- *      PIN_Id csnPin1  = PIN_ID(Board_CSN_1);
+ *      PIN_Id csnPin1  = PIN_ID(CONFIG_CSN_1);
  *      uint8_t txBuf[] = "Hello World";    // Transmit buffer
  *
  *      // Init SPI and specify non-default parameters
@@ -452,7 +454,7 @@
  *      transaction.rxBuf = NULL;
  *
  *      // Open the SPI and perform transfer to the first slave
- *      handle = SPI_open(Board_SPI, &params);
+ *      handle = SPI_open(CONFIG_SPI, &params);
  *      SPI_transfer(handle, &transaction);
  *
  *      // Then switch chip select pin and perform transfer to the second slave
@@ -509,7 +511,7 @@
  *
  *  SPI_Params_init(&params);
  *  params.mode = SPI_SLAVE;
- *  spi = SPI_open(Board_SPI, &params);
+ *  spi = SPI_open(CONFIG_SPI, &params);
  *
  *  if (spi == NULL) {
  *      exit(0);
@@ -580,7 +582,7 @@
  *  transaction.rxBuf = rxBuf;
  *
  *  // Open the SPI and perform the transfer
- *  handle = SPI_open(Board_SPI, &params);
+ *  handle = SPI_open(CONFIG_SPI, &params);
  *  // Get pinHandle
  *  pinHandle = ((SPICC26X2DMA_Object *)spiHandle->object)->pinHandle;
  *  // Get miso pin id
@@ -631,7 +633,7 @@
  *      PIN_remove(handle, pinId);
  *
  *      // Open SPI driver
- *      spiHandle = SPI_open(Board_SPI, &spiParams);
+ *      spiHandle = SPI_open(CONFIG_SPI, &spiParams);
  *
  *      // Issue echo transfer
  *      SPI_transfer(spiHandle, &spiTransaction);
@@ -691,10 +693,6 @@
 #ifndef ti_drivers_spi_SPICC26X2DMA__include
 #define ti_drivers_spi_SPICC26X2DMA__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <ti/drivers/SPI.h>
 #include <ti/drivers/pin/PINCC26XX.h>
@@ -705,6 +703,10 @@ extern "C" {
 #include <ti/drivers/dpl/HwiP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/dpl/SwiP.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  *  @addtogroup SPI_STATUS
@@ -733,9 +735,10 @@ extern "C" {
 /*!
  * @brief Command used by SPI_control() to enable partial return
  *
- * Enabling this command allows SPI_transfer() to return partial data if data
- * reception is inactive for a given 32-bit period.  With this command @b arg
- * is @a don't @a care and it returns #SPI_STATUS_SUCCESS.
+ * Enabling this command allows SPI_transfer to return partial data if the
+ * master de-asserts the CS line before the expected number of frames were
+ * recieved. This command @b arg is of type @a don't @a care and it returns
+ * SPI_STATUS_SUCCESS or SPI_STATUS_ERROR.
  */
 #define SPICC26X2DMA_CMD_RETURN_PARTIAL_ENABLE  (SPI_CMD_RESERVED + 0)
 
@@ -819,7 +822,7 @@ extern const SPI_FxnTable SPICC26X2DMA_fxnTable;
  *  - SPICC26X2DMA_8bit:  txBuf and rxBuf are arrays of uint8_t elements
  *  - SPICC26X2DMA_16bit: txBuf and rxBuf are arrays of uint16_t elements
  */
-typedef enum SPICC26X2DMA_FrameSize {
+typedef enum {
     SPICC26X2DMA_8bit  = 0,
     SPICC26X2DMA_16bit = 1
 } SPICC26X2DMA_FrameSize;
@@ -831,7 +834,7 @@ typedef enum SPICC26X2DMA_FrameSize {
  *  partial mode and the associated pin interrupt. This field is for internal
  *  use only.
  */
-typedef enum SPICC26X2DMA_ReturnPartial {
+typedef enum {
     SPICC26X2DMA_retPartDisabled  = 0,
     SPICC26X2DMA_retPartEnabledIntNotSet = 1,
     SPICC26X2DMA_retPartEnabledIntSet = 2
@@ -869,10 +872,10 @@ typedef enum SPICC26X2DMA_ReturnPartial {
  *          .defaultTxBufValue = 0,
  *          .rxChannelBitMask = UDMA_CHAN_SPI0_RX,
  *          .txChannelBitMask = UDMA_CHAN_SPI0_TX,
- *          .mosiPin = Board_SPI0_MISO,
- *          .misoPin = Board_SPI0_MOSI,
- *          .clkPin = Board_SPI0_CLK,
- *          .csnPin = Board_SPI0_CSN
+ *          .mosiPin = CONFIG_SPI0_MISO,
+ *          .misoPin = CONFIG_SPI0_MOSI,
+ *          .clkPin = CONFIG_SPI0_CLK,
+ *          .csnPin = CONFIG_SPI0_CSN
  *      },
  *      {
  *          .baseAddr = SSI1_BASE,
@@ -883,15 +886,15 @@ typedef enum SPICC26X2DMA_ReturnPartial {
  *          .defaultTxBufValue = 0,
  *          .rxChannelBitMask = UDMA_CHAN_SPI1_RX,
  *          .txChannelBitMask = UDMA_CHAN_SPI1_TX,
- *          .mosiPin = Board_SPI1_MISO,
- *          .misoPin = Board_SPI1_MOSI,
- *          .clkPin = Board_SPI1_CLK,
- *          .csnPin = Board_SPI1_CSN
+ *          .mosiPin = CONFIG_SPI1_MISO,
+ *          .misoPin = CONFIG_SPI1_MOSI,
+ *          .clkPin = CONFIG_SPI1_CLK,
+ *          .csnPin = CONFIG_SPI1_CSN
  *      },
  *  };
  *  @endcode
  */
-typedef struct SPICC26X2DMA_HWAttrs {
+typedef struct {
     /*! @brief SPI Peripheral's base address */
     uint32_t         baseAddr;
     /*! SPI CC26XXDMA Peripheral's interrupt vector */
@@ -944,7 +947,7 @@ typedef struct SPICC26X2DMA_HWAttrs {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct SPICC26X2DMA_Object {
+typedef struct {
     HwiP_Struct                hwi;
     PIN_Handle                 pinHandle;
     PIN_State                  pinState;

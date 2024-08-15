@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,14 +39,15 @@
 #ifndef ti_drivers_cryptoutils_ecc_ECCParams__include
 #define ti_drivers_cryptoutils_ecc_ECCParams__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 
 #include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Error status codes for the utility functions */
 
@@ -92,11 +93,18 @@ extern "C" {
  *  | Edwards           | x^2 + y^2 = 1 + dx^2y^2 mod p |
  *
  */
-typedef enum ECCParams_CurveType_ {
-    ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS = 0,
-    ECCParams_CURVE_TYPE_MONTGOMERY,
-    ECCParams_CURVE_TYPE_EDWARDS,
-} ECCParams_CurveType;
+typedef uint32_t ECCParams_CurveType;
+
+#define ECCParams_CURVE_TYPE_NONE 0U
+#define ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3 1U
+#define ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_GEN 2U
+#define ECCParams_CURVE_TYPE_MONTGOMERY 3U
+#define ECCParams_CURVE_TYPE_EDWARDS 4U
+
+typedef struct ECCParams_ECCPoint {
+    const uint8_t *x;
+    const uint8_t *y;
+} ECCParams_ECCPoint;
 
 /*!
  *
@@ -108,17 +116,28 @@ typedef enum ECCParams_CurveType_ {
  *  form y^3 = x^2 + a*x + b
  *
  */
-typedef struct ECCParams_CurveParams_ {
+
+typedef struct ECCParams_CurveParams {
     const ECCParams_CurveType   curveType;
-    const size_t                length;         //!< Length of the curve in bytes. All other buffers have this length.
-    const uint8_t               *prime;         //!< The prime that defines the field of the curve.
-    const uint8_t               *order;         //!< Order of the curve.
-    const uint8_t               *a;             //!< Coefficient a of the equation.
-    const uint8_t               *b;             //!< Coefficient b of the equation.
-    const uint8_t               *generatorX;    //!< X coordinate of the generator point of the curve.
-    const uint8_t               *generatorY;    //!< Y coordinate of the generator point of the curve.
-}
-ECCParams_CurveParams;
+    const uint8_t               *prime;
+    const uint8_t               *a;
+    const uint8_t               *b;
+    const uint8_t               *order;
+    const ECCParams_ECCPoint    *g;
+    const ECCParams_ECCPoint    *t;
+    uint16_t                    primeBitLength;
+    uint16_t                    orderBitLength;
+    uint8_t                     cofactor;
+    uint8_t                     curveID;
+    uint16_t                    reserved;
+
+    /* Below: differences between implementations that need to be aligned */
+    const size_t                length;
+    const uint8_t               *generatorX;
+    const uint8_t               *generatorY;
+    ECCParams_ECCPoint          generator;
+    ECCParams_ECCPoint          precomputed;
+} ECCParams_CurveParams;
 
 
 
@@ -190,6 +209,9 @@ extern const ECCParams_CurveParams ECCParams_Curve25519;
 
 /* Utility functions */
 
+/* #define used for backwards compatibility */
+#define ECCParams_FormatCurve25519PrivateKey ECCParams_formatCurve25519PrivateKey
+
 /*!
  *  @brief Formats a CryptoKey to conform to Curve25519 private key requirements.
  *
@@ -205,7 +227,35 @@ extern const ECCParams_CurveParams ECCParams_Curve25519;
  *
  *  @pre Initialize the CryptoKey with a 32-byte buffer in a compliant location.
  */
-int_fast16_t ECCParams_FormatCurve25519PrivateKey(CryptoKey *myPrivateKey);
+int_fast16_t ECCParams_formatCurve25519PrivateKey(CryptoKey *myPrivateKey);
+
+/*!
+ *  @brief Extracts the curve generator point from an ecliptic curve description.
+ *
+ *  The curve parameters #ECCParams_CurveParams::generatorX and
+ *  #ECCParams_CurveParams::generatorY are extracted from \c curveParams and
+ *  written as a concatenated octet string in big endian order to
+ *  \c buffer. The format is defined in SEC 1: Elliptic Curve Cryptography section
+ *  2.3.3.
+ *
+ *  The curve point has the format ``0x04 || X || Y`` and the length is
+ *  ``2 * size_of_x_or_y + 1`` where ``0x04`` specifies octet string format.
+ *  If the buffer \c length exceeds the curve point length, the remaining
+ *  buffer space is zeroed.
+ *
+ *  @param  curveParams     Points to the input curve parameters
+ *  @param  buffer          Points to the destination where the generator point will
+ *                          be written to. Make sure that \c buffer is large enough to
+ *                          hold
+ *  @param  length          Maximum length of \c buffer in bytes.
+ *
+ *  @retval #ECCParams_STATUS_SUCCESS on success, #ECCParams_STATUS_ERROR if the
+ *          provided buffer \c length is insufficient to hold the curve point.
+ *
+ */
+int_fast16_t ECCParams_getUncompressedGeneratorPoint(const ECCParams_CurveParams *curveParams,
+                                                     uint8_t *buffer,
+                                                     size_t length);
 
 #ifdef __cplusplus
 }

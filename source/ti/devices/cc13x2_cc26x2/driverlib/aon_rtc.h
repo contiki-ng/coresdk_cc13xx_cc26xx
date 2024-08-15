@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       aon_rtc.h
-*  Revised:        2017-08-16 15:13:43 +0200 (Wed, 16 Aug 2017)
-*  Revision:       49593
+*  Revised:        2020-08-25 16:10:23 +0200 (Tue, 25 Aug 2020)
+*  Revision:       58298
 *
 *  Description:    Defines and prototypes for the AON RTC
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

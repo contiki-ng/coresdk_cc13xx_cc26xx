@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,15 +31,15 @@
  */
 
 /*
- *  =============================== Includes ===================================
+ *  ======== I2CCC26XX.c ========
  */
-/* STD header files */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 
-/* RTOS driver header files */
 #include <ti/drivers/i2c/I2CCC26XX.h>
+#include <ti/drivers/i2c/I2CSupport.h>
 #include <ti/drivers/pin/PINCC26XX.h>
 
 #include <ti/drivers/dpl/DebugP.h>
@@ -64,134 +64,60 @@
  *
  */
 #ifndef I2C_MASTER_CMD_BURST_RECEIVE_START_NACK
-#define I2C_MASTER_CMD_BURST_RECEIVE_START_NACK     I2C_MASTER_CMD_BURST_SEND_START
+#define I2C_MASTER_CMD_BURST_RECEIVE_START_NACK \
+    I2C_MASTER_CMD_BURST_SEND_START
 #endif
 
 #ifndef I2C_MASTER_CMD_BURST_RECEIVE_STOP
-#define I2C_MASTER_CMD_BURST_RECEIVE_STOP           I2C_MASTER_CMD_BURST_RECEIVE_ERROR_STOP
+#define I2C_MASTER_CMD_BURST_RECEIVE_STOP \
+    I2C_MASTER_CMD_BURST_RECEIVE_ERROR_STOP
 #endif
 
 #ifndef I2C_MASTER_CMD_BURST_RECEIVE_CONT_NACK
-#define I2C_MASTER_CMD_BURST_RECEIVE_CONT_NACK      I2C_MASTER_CMD_BURST_SEND_CONT
+#define I2C_MASTER_CMD_BURST_RECEIVE_CONT_NACK \
+    I2C_MASTER_CMD_BURST_SEND_CONT
 #endif
 
-/*
- *  =============================== Prototypes =================================
- */
-void         I2CCC26XX_init(I2C_Handle handle);
-I2C_Handle   I2CCC26XX_open(I2C_Handle handle, I2C_Params *params);
-bool         I2CCC26XX_transfer(I2C_Handle handle, I2C_Transaction *transaction);
-void         I2CCC26XX_cancel(I2C_Handle handle);
-void         I2CCC26XX_close(I2C_Handle handle);
-int_fast16_t I2CCC26XX_control(I2C_Handle handle, uint_fast16_t cmd, void *arg);
+/* Prototypes */
+static void I2CCC26XX_blockingCallback(I2C_Handle handle,
+    I2C_Transaction *msg, bool transferStatus);
+static inline void I2CCC26XX_completeTransfer(I2C_Handle handle);
+static void I2CCC26XX_hwiFxn(uintptr_t arg);
+void I2CCC26XX_init(I2C_Handle handle);
+static void I2CCC26XX_initHw(I2C_Handle handle);
+static int I2CCC26XX_initIO(I2C_Handle handle, void *pinCfg);
+static int I2CCC26XX_postNotify(unsigned int eventType, uintptr_t eventArg,
+    uintptr_t clientArg);
+static void I2CCC26XX_swiFxn(uintptr_t arg0, uintptr_t arg1);
 
-/*
- *  ========================== Local Prototypes ================================
- */
-static int      I2CCC26XX_primeTransfer(I2C_Handle handle, I2C_Transaction *transferMessage);
-static void     I2CCC26XX_blockingCallback(I2C_Handle handle, I2C_Transaction *msg, bool transferStatus);
-static void     I2CCC26XX_initHw(I2C_Handle handle);
-static int      I2CCC26XX_initIO(I2C_Handle handle, void *pinCfg);
-static int i2cPostNotify(unsigned int eventType, uintptr_t eventArg, uintptr_t clientArg);
-
-/*
- *  ============================== Constants ===================================
- */
-/* I2C function table for I2CCC26XX implementation */
-const I2C_FxnTable I2CCC26XX_fxnTable = {
-    I2CCC26XX_cancel,
-    I2CCC26XX_close,
-    I2CCC26XX_control,
-    I2CCC26XX_init,
-    I2CCC26XX_open,
-    I2CCC26XX_transfer
+/* Default I2C parameters structure */
+static const I2C_Params I2C_defaultParams = {
+    I2C_MODE_BLOCKING,  /* transferMode */
+    NULL,               /* transferCallbackFxn */
+    I2C_100kHz,         /* bitRate */
+    NULL                /* custom */
 };
 
-static const uint32_t bitRate[] = {
-    false,  /*  I2C_100kHz = 0 */
-    true    /*  I2C_400kHz = 1 */
-};
-
-
-/*
- *  ============================= Functions ====================================
- */
-
 /*!
- *  @brief Function to cancel any in progress or queued transactions.
- *
- *  After calling the cancel function, the I2C is enabled.
- *
- *  @pre    I2CCC26XX_transfer() should have been called first.
- *          Calling context: Task
- *
- *  @param handle An I2C_Handle returned by I2C_open()
- *
- *  @note  The generic I2C API should be used when accessing the I2CCC26XX.
- *
- *  ======== I2CCC26XX_cancel ========
- */
-void I2CCC26XX_cancel(I2C_Handle handle)
-{
-    unsigned int key;
-    I2CCC26XX_HWAttrsV1 const *hwAttrs = handle->hwAttrs;
-    I2CCC26XX_Object *object = handle->object;
-
-    /* just return if no transfer is in progress */
-    if (!object->headPtr) {
-        return;
-    }
-
-    /* disable interrupts, send STOP to try to complete all transfers */
-    key = HwiP_disable();
-    I2CMasterIntDisable(hwAttrs->baseAddr);
-    I2CMasterControl(hwAttrs->baseAddr, I2C_MASTER_CMD_BURST_SEND_ERROR_STOP);
-
-    /* call the transfer callback for the current transfer, indicate failure */
-    object->transferCallbackFxn(handle, object->currentTransaction, false);
-
-    /* release the constraint to disallow standby */
-    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
-
-    /* also dequeue and call the transfer callbacks for any queued transfers */
-    while (object->headPtr != object->tailPtr) {
-        object->headPtr = object->headPtr->nextPtr;
-        object->transferCallbackFxn(handle, object->headPtr, false);
-        Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
-    }
-
-    /* clean up object */
-    object->mode = I2CCC26XX_IDLE_MODE;
-    object->currentTransaction = NULL;
-    object->headPtr = NULL;
-    object->tailPtr = NULL;
-
-    /* re-initialize the I2C peripheral */
-    I2CMasterDisable(hwAttrs->baseAddr);
-    I2CCC26XX_initHw(handle);
-
-    HwiP_restore(key);
-}
-
-/*!
+ *  ======== I2C_close ========
  *  @brief Function to close a given CC26XX I2C peripheral specified by the
  *         I2C handle.
  *
  *  After calling the close function, the I2C is disabled.
  *
- *  @pre    I2CCC26XX_open() has to be called first.
+ *  @pre    I2C_open() has to be called first.
  *          Calling context: Task
  *
  *  @param handle An I2C_Handle returned by I2C_open()
  *
  *  @note  The generic I2C API should be used when accessing the I2CCC26XX.
  *
- *  @sa     I2CCC26XX_open(), I2C_close(), I2C_open()
+ *  @sa     I2C_open(), I2C_close(), I2C_open()
  */
-void I2CCC26XX_close(I2C_Handle handle)
+void I2C_close(I2C_Handle handle)
 {
-    I2CCC26XX_Object            *object;
-    I2CCC26XX_HWAttrsV1 const  *hwAttrs;
+    I2CCC26XX_Object          *object;
+    I2CCC26XX_HWAttrsV1 const *hwAttrs;
 
     /* Get the pointer to the object and hwAttrs */
     hwAttrs = handle->hwAttrs;
@@ -212,7 +138,7 @@ void I2CCC26XX_close(I2C_Handle handle)
     /* Power off the I2C module */
     Power_releaseDependency(hwAttrs->powerMngrId);
 
-    /* Desctruct modules used in driver */
+    /* Destruct modules used in driver */
     HwiP_destruct(&(object->hwi));
     SwiP_destruct(&(object->swi));
     SemaphoreP_destruct(&(object->mutex));
@@ -226,363 +152,26 @@ void I2CCC26XX_close(I2C_Handle handle)
     /* Mark the module as available */
     object->isOpen = false;
 
-    DebugP_log1("I2C: Object closed 0x%x", hwAttrs->baseAddr);
-
     return;
 }
 
 /*!
+ *  ======== I2C_control ========
  *  @brief  Function for setting control parameters of the I2C driver
  *          after it has been opened.
  *
+ *  @pre    Function assumes that the handle is not NULL
+ *
  *  @note   Currently not in use.
  */
-int_fast16_t I2CCC26XX_control(I2C_Handle handle, uint_fast16_t cmd, void *arg)
+int_fast16_t I2C_control(I2C_Handle handle, uint_fast16_t cmd, void *arg)
 {
     /* No implementation */
     return (I2C_STATUS_UNDEFINEDCMD);
 }
 
-
-/*
- *  ======== I2CCC26XX_hwiFxn ========
- *  Hwi interrupt handler to service the I2C peripheral
- *
- *  The handler is a generic handler for a I2C object.
- */
-static void I2CCC26XX_hwiFxn(uintptr_t arg)
-{
-    I2CDataType                 errStatus;
-    I2CCC26XX_Object            *object;
-    I2CCC26XX_HWAttrsV1 const  *hwAttrs;
-
-    /* Get the pointer to the object and hwAttrs */
-    object = ((I2C_Handle)arg)->object;
-    hwAttrs = ((I2C_Handle)arg)->hwAttrs;
-
-    /* Get the interrupt status of the I2C controller */
-    errStatus = I2CMasterErr(hwAttrs->baseAddr);
-
-    /* Clear interrupt source to avoid additional interrupts */
-    I2CMasterIntClear(hwAttrs->baseAddr);
-
-    /* Check for I2C Errors */
-    if ((errStatus == I2C_MASTER_ERR_NONE) ||
-        (object->mode == I2CCC26XX_ERROR)) {
-
-        /* No errors, now check what we need to do next */
-        switch (object->mode) {
-
-            /*
-             * ERROR case : Error detected and STOP bit sent in previous interrupt;
-             * this interrupt triggered by stop condition on bus.
-             * Post SWI to complete the transfer
-             */
-            case I2CCC26XX_ERROR:
-            case I2CCC26XX_IDLE_MODE:
-                SwiP_post(&(object->swi));
-                break;
-
-            case I2CCC26XX_WRITE_MODE:
-                /* Decrement write Counter */
-                object->writeCountIdx--;
-
-                /* Check if more data needs to be sent */
-                if (object->writeCountIdx) {
-                    DebugP_log3(
-                            "I2C:(%p) ISR I2CCC26XX_WRITE_MODE: Data to write: 0x%x; "
-                            "To slave: 0x%x",
-                            hwAttrs->baseAddr,
-                            *(object->writeBufIdx),
-                            object->currentTransaction->slaveAddress);
-
-                    /* Write data contents into data register */
-                    I2CMasterDataPut(hwAttrs->baseAddr,
-                                   *(object->writeBufIdx));
-                    object->writeBufIdx++;
-
-                    if ((object->writeCountIdx < 2) && !(object->readCountIdx)) {
-                        /* Everything has been sent, nothing to receive */
-                        /* Next state: Idle mode */
-                        object->mode = I2CCC26XX_IDLE_MODE;
-
-                        /* Send last byte with STOP bit */
-                        I2CMasterControl(hwAttrs->baseAddr,
-                                I2C_MASTER_CMD_BURST_SEND_FINISH);
-
-                        DebugP_log1(
-                                "I2C:(%p) ISR I2CCC26XX_WRITE_MODE: ACK received; "
-                                "Writing w/ STOP bit",
-                                hwAttrs->baseAddr);
-                    }
-                    else {
-                        /*
-                         * Either there is more date to be transmitted or some
-                         * data needs to be received next
-                         */
-                        I2CMasterControl(hwAttrs->baseAddr,
-                                I2C_MASTER_CMD_BURST_SEND_CONT);
-
-                        DebugP_log1(
-                                "I2C:(%p) ISR I2CCC26XX_WRITE_MODE: ACK received; Writing",
-                                hwAttrs->baseAddr);
-                    }
-                }
-
-                /* At this point, we know that we need to receive data */
-                else {
-                    /*
-                     * We need to check after we are done transmitting data, if
-                     * we need to receive any data.
-                     * In a corner case when we have only one byte transmitted
-                     * and no data to receive, the I2C will automatically send
-                     * the STOP bit. In other words, here we only need to check
-                     * if data needs to be received. If so, how much.
-                     */
-                    if (object->readCountIdx) {
-                        /* Next state: Receive mode */
-                        object->mode = I2CCC26XX_READ_MODE;
-
-                        /* Switch into Receive mode */
-                        I2CMasterSlaveAddrSet(hwAttrs->baseAddr,
-                                object->currentTransaction->slaveAddress, true);
-
-                        if (object->readCountIdx > 1) {
-                            /* Send a repeated START */
-                            I2CMasterControl(hwAttrs->baseAddr,
-                                    I2C_MASTER_CMD_BURST_RECEIVE_START);
-
-                            DebugP_log1(
-                                "I2C:(%p) ISR I2CCC26XX_WRITE_MODE: -> I2CCC26XX_READ_MODE; "
-                                "Reading w/ RESTART and ACK",
-                                hwAttrs->baseAddr);
-                        }
-                        else {
-                            /*
-                             * Send a repeated START with a NACK since it's the
-                             * last byte to be received.
-                             * I2C_MASTER_CMD_BURST_RECEIVE_START_NACK is
-                             * is locally defined because there is no macro to
-                             * receive data and send a NACK after sending a
-                             * start bit (0x00000003)
-                             */
-                            I2CMasterControl(hwAttrs->baseAddr,
-                                    I2C_MASTER_CMD_BURST_RECEIVE_START_NACK);
-
-                            DebugP_log1(
-                                "I2C:(%p) ISR I2CCC26XX_WRITE_MODE: -> I2CCC26XX_READ_MODE; "
-                                "Reading w/ RESTART and NACK",
-                                hwAttrs->baseAddr);
-                        }
-                    }
-                    else {
-                        /* Done with all transmissions */
-                        object->mode = I2CCC26XX_IDLE_MODE;
-                        /*
-                         * No more data needs to be received, so follow up with
-                         * a STOP bit
-                         * Again, there is no equivalent macro (0x00000004) so
-                         * I2C_MASTER_CMD_BURST_RECEIVE_STOP is used.
-                         */
-                        I2CMasterControl(hwAttrs->baseAddr,
-                                I2C_MASTER_CMD_BURST_RECEIVE_STOP);
-
-                        DebugP_log1(
-                                "I2C:(%p) ISR I2CCC26XX_WRITE_MODE: -> I2CCC26XX_IDLE_MODE; "
-                                "Sending STOP bit",
-                                hwAttrs->baseAddr);
-
-                    }
-                }
-                break;
-
-            case I2CCC26XX_READ_MODE:
-                /* Save the received data */
-                *(object->readBufIdx) =
-                    I2CMasterDataGet(hwAttrs->baseAddr);
-
-                DebugP_log2(
-                        "I2C:(%p) ISR I2CCC26XX_READ_MODE: Read data byte: 0x%x",
-                        hwAttrs->baseAddr,
-                        *(object->readBufIdx));
-
-                object->readBufIdx++;
-
-                /* Check if any data needs to be received */
-                object->readCountIdx--;
-                if (object->readCountIdx) {
-                    if (object->readCountIdx > 1) {
-                        /* More data to be received */
-                        I2CMasterControl(hwAttrs->baseAddr,
-                                I2C_MASTER_CMD_BURST_RECEIVE_CONT);
-
-                        DebugP_log1(
-                                "I2C:(%p) ISR I2CCC26XX_READ_MODE: Reading w/ ACK",
-                                hwAttrs->baseAddr);
-                    }
-                    else {
-                        /*
-                         * Send NACK because it's the last byte to be received
-                         * There is no NACK macro equivalent (0x00000001) so
-                         * I2C_MASTER_CMD_BURST_RECEIVE_CONT_NACK is used
-                         */
-                        I2CMasterControl(hwAttrs->baseAddr,
-                                I2C_MASTER_CMD_BURST_RECEIVE_CONT_NACK);
-
-                        DebugP_log1(
-                                "I2C:(%p) ISR I2CCC26XX_READ_MODE: Reading w/ NACK",
-                                hwAttrs->baseAddr);
-                    }
-                }
-                else {
-                    /* Next state: Idle mode */
-                    object->mode = I2CCC26XX_IDLE_MODE;
-
-                    /*
-                     * No more data needs to be received, so follow up with a
-                     * STOP bit
-                     * Again, there is no equivalent macro (0x00000004) so
-                     * I2C_MASTER_CMD_BURST_RECEIVE_STOP is used
-                     */
-                    I2CMasterControl(hwAttrs->baseAddr,
-                            I2C_MASTER_CMD_BURST_RECEIVE_STOP);
-
-                    DebugP_log1(
-                            "I2C:(%p) ISR I2CCC26XX_READ_MODE: -> I2CCC26XX_IDLE_MODE; "
-                            "Sending STOP bit",
-                            hwAttrs->baseAddr);
-
-                }
-
-                break;
-
-            default:
-                object->mode = I2CCC26XX_ERROR;
-                break;
-        }
-
-    }
-    else {
-        /* Error Handling */
-        if ((errStatus & (I2C_MASTER_ERR_ARB_LOST | I2C_MASTER_ERR_ADDR_ACK)) ||
-            (object->mode == I2CCC26XX_IDLE_MODE)) {
-
-            if (errStatus & I2C_MASTER_ERR_ADDR_ACK) {
-
-                /*
-                 * The CC26XX I2C hardware ignores the NACK condition
-                 * for the slave address. Therefore, it sends an additional
-                 * byte instead of generating a STOP condition.
-                 */
-                I2CMasterControl(hwAttrs->baseAddr,
-                    I2C_MASTER_CMD_BURST_SEND_ERROR_STOP);
-            }
-
-            /* STOP condition already occurred, complete transfer */
-            object->mode = I2CCC26XX_ERROR;
-            SwiP_post(&(object->swi));
-        }
-        else {
-
-            /* Error occurred during a transfer, send a STOP condition */
-            object->mode = I2CCC26XX_ERROR;
-            I2CMasterControl(hwAttrs->baseAddr,
-                I2C_MASTER_CMD_BURST_SEND_ERROR_STOP);
-        }
-
-        DebugP_log2("I2C:(%p) ISR I2C Bus fault (Status Reg: 0x%x)",
-                hwAttrs->baseAddr, errStatus);
-    }
-
-    return;
-}
-
-/*
- *  ======== I2CCC26XX_swiFxn ========
- *  SWI interrupt handler to service the I2C peripheral
- *
- *  Takes care of cleanup and the callback in SWI context after an I2C transfer
- */
-static void I2CCC26XX_swiFxn(uintptr_t arg0, uintptr_t arg1){
-    I2C_Handle               handle = ((I2C_Handle)arg0);
-    I2CCC26XX_Object         *object = handle->object;
-    int32_t                  status;
-
-    DebugP_log1("I2C:(%p) ISR Transfer Complete",
-               ((I2CCC26XX_HWAttrsV1 const  *)(handle->hwAttrs))->baseAddr);
-
-    /* See if we need to process any other transactions */
-    if (object->headPtr == object->tailPtr) {
-
-        /* No other transactions need to occur */
-        object->headPtr = NULL;
-        object->tailPtr = NULL;
-
-        /*
-         * Allow callback to run. If in CALLBACK mode, the application
-         * may initiate a transfer in the callback which will call
-         * primeTransfer().
-         */
-        object->transferCallbackFxn(handle, object->currentTransaction,
-                (object->mode == I2CCC26XX_IDLE_MODE));
-
-        /* Release standby disallow constraint. */
-        Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
-
-        DebugP_log1(
-                "I2C:(%p) ISR No other I2C transaction in queue",
-               ((I2CCC26XX_HWAttrsV1 const  *)(handle->hwAttrs))->baseAddr);
-    }
-    else {
-        /* Another transfer needs to take place */
-        object->headPtr = object->headPtr->nextPtr;
-
-        /*
-         * Allow application callback to run. The application may
-         * initiate a transfer in the callback which will add an
-         * additional transfer to the queue.
-         */
-        object->transferCallbackFxn(handle, object->currentTransaction,
-                (object->mode == I2CCC26XX_IDLE_MODE));
-
-        DebugP_log2(
-                "I2C:(%p) ISR Priming next I2C transaction "
-                "(%p) from queue",
-                ((I2CCC26XX_HWAttrsV1 const  *)(handle->hwAttrs))->baseAddr,
-                (uintptr_t)object->headPtr);
-
-        status = I2CCC26XX_primeTransfer(handle, object->headPtr);
-
-        /* Call back now if not able to start transfer */
-        if (status == I2C_STATUS_ERROR) {
-            object->mode = I2CCC26XX_BUSBUSY_MODE;
-            SwiP_post(&(object->swi));
-        }
-    }
-}
-
 /*!
- *  @brief I2C CC26XX initialization
- *
- *  @param handle  An I2C_Handle
- *
- *  @pre    Calling context: Hwi, Swi, Task, Main
- *
- *  @note  The generic I2C API should be used when accessing the I2CCC26XX.
- */
-void I2CCC26XX_init(I2C_Handle handle)
-{
-    I2CCC26XX_Object           *object;
-
-    /* Get the pointer to the object */
-    object = handle->object;
-
-    /* Initially the drivers is not open */
-    object->isOpen = false;
-
-}
-
-/*!
+ *  ======== I2C_open ========
  *  @brief Function to initialize a given I2C CC26XX peripheral specified by the
  *         particular handle. The parameter specifies which mode the I2C
  *         will operate.
@@ -603,21 +192,31 @@ void I2CCC26XX_init(I2C_Handle handle)
  *
  *  @note  The generic I2C API should be used when accessing the I2CCC26XX.
  *
- *  @sa     I2CCC26XX_close(), I2CCC26XX_init(), I2C_open(), I2C_init()
+ *  @sa     I2C_close(), I2CCC26XX_init(), I2C_open(), I2C_init()
  */
-I2C_Handle I2CCC26XX_open(I2C_Handle handle, I2C_Params *params)
+I2C_Handle I2C_open(uint_least8_t index, I2C_Params *params)
 {
+    I2C_Handle handle = NULL;
     union {
-        HwiP_Params              hwiParams;
-        SwiP_Params              swiParams;
+        HwiP_Params            hwiParams;
+        SwiP_Params            swiParams;
     } paramsUnion;
-    uintptr_t                       key;
-    I2CCC26XX_Object               *object;
-    I2CCC26XX_HWAttrsV1 const      *hwAttrs;
+    uintptr_t                  key;
+    I2CCC26XX_Object          *object;
+    I2CCC26XX_HWAttrsV1 const *hwAttrs;
 
-    /* Get the pointer to the object and hwAttrs */
-    object = handle->object;
-    hwAttrs = handle->hwAttrs;
+    if (index < I2C_count) {
+        if (params == NULL) {
+            params = (I2C_Params *) &I2C_defaultParams;
+        }
+
+        handle = (I2C_Handle)&(I2C_config[index]);
+        hwAttrs = handle->hwAttrs;
+        object = handle->object;
+    }
+    else {
+        return (NULL);
+    }
 
     /* Check for valid bit rate */
     DebugP_assert(params->bitRate <= I2C_400kHz);
@@ -633,32 +232,29 @@ I2C_Handle I2CCC26XX_open(I2C_Handle handle, I2C_Params *params)
     object->isOpen = true;
     HwiP_restore(key);
 
+    /* Power on the I2C module */
+    Power_setDependency(hwAttrs->powerMngrId);
+
+    /* Configure the IOs.*/
+    if (I2CCC26XX_initIO(handle, params->custom)) {
+      /* Mark the module as available */
+      key = HwiP_disable();
+      object->isOpen = false;
+      HwiP_restore(key);
+      /* Release dependency if open fails */
+      Power_releaseDependency(hwAttrs->powerMngrId);
+      /* Signal back to application that I2C driver was not successfully opened */
+      return (NULL);
+    }
+
     /* Save parameters */
     object->transferMode = params->transferMode;
     object->transferCallbackFxn = params->transferCallbackFxn;
     object->bitRate = params->bitRate;
 
-    /* Power on the I2C module */
-    Power_setDependency(hwAttrs->powerMngrId);
-
-    /* Initialize the I2C hardware module */
-    I2CCC26XX_initHw(handle);
-
-    /* Configure the IOs.*/
-    if (I2CCC26XX_initIO(handle, params->custom)) {
-      /* Trying to use I2C driver when pins are already used for something else, error! */
-      DebugP_log1("I2C: Pin allocation failed, open did not succeed (baseAddr:0x%x)", hwAttrs->baseAddr);
-      /* Disable I2C module */
-      I2CMasterDisable(hwAttrs->baseAddr);
-      /* Release power dependency - i.e. potentially power down serial domain. */
-      Power_releaseDependency(hwAttrs->powerMngrId);
-      /* Mark the module as available */
-      key = HwiP_disable();
-      object->isOpen = false;
-      HwiP_restore(key);
-      /* Signal back to application that I2C driver was not succesfully opened */
-      return (NULL);
-    }
+    /* Disable and clear interrupts possible from soft resets */
+    I2CMasterIntDisable(hwAttrs->baseAddr);
+    I2CMasterIntClear(hwAttrs->baseAddr);
 
     /* Create Hwi object for this I2C peripheral */
     HwiP_Params_init(&paramsUnion.hwiParams);
@@ -685,6 +281,7 @@ I2C_Handle I2CCC26XX_open(I2C_Handle handle, I2C_Params *params)
     if (object->transferMode == I2C_MODE_BLOCKING) {
         /* Semaphore to cause the waiting task to block for the I2C to finish */
         SemaphoreP_constructBinary(&(object->transferComplete), 0);
+
         /* Store internal callback function */
         object->transferCallbackFxn = I2CCC26XX_blockingCallback;
     }
@@ -693,319 +290,378 @@ I2C_Handle I2CCC26XX_open(I2C_Handle handle, I2C_Params *params)
         DebugP_assert(object->transferCallbackFxn != NULL);
     }
 
-    /* Specify the idle state for this I2C peripheral */
-    object->mode = I2CCC26XX_IDLE_MODE;
-
     /* Clear the head pointer */
     object->headPtr = NULL;
     object->tailPtr = NULL;
 
-    /* Register notification functions */
-    Power_registerNotify(&object->i2cPostObj, PowerCC26XX_AWAKE_STANDBY, (Power_NotifyFxn)i2cPostNotify, (uint32_t)handle);
+    /* Initialize the I2C hardware module */
+    I2CCC26XX_initHw(handle);
 
-    /* I2C driver opened successfully */
-    DebugP_log1("I2C: Object created 0x%x", hwAttrs->baseAddr);
+    /* Register notification functions */
+    Power_registerNotify(&object->i2cPostObj, PowerCC26XX_AWAKE_STANDBY,
+        (Power_NotifyFxn)I2CCC26XX_postNotify, (uint32_t)handle);
 
     /* Return the address of the handle */
     return (handle);
 }
 
 /*
- *  ======== I2CCC26XX_primeTransfer =======
+ *  ======== I2CCC26XX_hwiFxn ========
+ *  Hwi interrupt handler to service the I2C peripheral
+ *
+ *  The handler is a generic handler for a I2C object.
  */
-static int I2CCC26XX_primeTransfer(I2C_Handle handle,
-                                   I2C_Transaction *transaction)
+static void I2CCC26XX_hwiFxn(uintptr_t arg)
 {
-    I2CCC26XX_Object            *object;
-    I2CCC26XX_HWAttrsV1 const  *hwAttrs;
+    I2C_Handle                 handle = (I2C_Handle) arg;
+    I2CCC26XX_Object          *object = handle->object;
+    I2CCC26XX_HWAttrsV1 const *hwAttrs = handle->hwAttrs;
+    uint32_t                   command = I2C_MCTRL_RUN;
 
-    /* Get the pointer to the object and hwAttrs */
-    object = handle->object;
-    hwAttrs = handle->hwAttrs;
+    /* Clear the interrupt */
+    I2CMasterIntClear(hwAttrs->baseAddr);
+
+    /*
+     * Check if the Master is busy. If busy, the MSTAT is invalid as
+     * the controller is still transmitting or receiving. In that case,
+     * we should wait for the next interrupt.
+     */
+    if (I2CMasterBusy(hwAttrs->baseAddr)) {
+        return;
+    }
+
+    uint32_t status = HWREG(I2C0_BASE + I2C_O_MSTAT);
+
+    /* Current transaction is cancelled */
+    if (object->currentTransaction->status == I2C_STATUS_CANCEL) {
+        I2CMasterControl(hwAttrs->baseAddr, I2C_MCTRL_STOP);
+        I2CCC26XX_completeTransfer(handle);
+        return;
+    }
+
+    /* Handle errors. ERR bit is not set if arbitration lost */
+    if (status & (I2C_MSTAT_ERR | I2C_MSTAT_ARBLST)) {
+        /* Decode interrupt status */
+        if (status & I2C_MSTAT_ARBLST) {
+            object->currentTransaction->status = I2C_STATUS_ARB_LOST;
+        }
+        /*
+         * The I2C peripheral has an issue where the first data byte
+         * is always transmitted, regardless of the ADDR NACK. Therefore,
+         * we should check this error condition first.
+         */
+        else if (status & I2C_MSTAT_ADRACK_N) {
+            object->currentTransaction->status = I2C_STATUS_ADDR_NACK;
+        }
+        else {
+            /* Last possible bit is the I2C_MSTAT_DATACK_N */
+            object->currentTransaction->status = I2C_STATUS_DATA_NACK;
+        }
+
+        /*
+         * The CC13X2 / CC26X2 I2C peripheral does not have an explicit STOP
+         * interrupt bit. Therefore, if an error occurred, we send the STOP
+         * bit and complete the transfer immediately.
+         */
+        I2CMasterControl(hwAttrs->baseAddr, I2C_MCTRL_STOP);
+        I2CCC26XX_completeTransfer(handle);
+    }
+    else if (object->writeCount) {
+        object->writeCount--;
+
+        /* Is there more to transmit */
+        if (object->writeCount) {
+            I2CMasterDataPut(hwAttrs->baseAddr, *(object->writeBuf++));
+        }
+        /* If we need to receive */
+        else if (object->readCount) {
+            /* Place controller in receive mode */
+            I2CMasterSlaveAddrSet(hwAttrs->baseAddr,
+                object->currentTransaction->slaveAddress, true);
+
+            if (object->readCount > 1) {
+                /* RUN and generate ACK to slave */
+                command |= I2C_MCTRL_ACK;
+            }
+
+            /* RUN and generate a repeated START */
+            command |= I2C_MCTRL_START;
+        }
+        else {
+            /* Send STOP */
+            command = I2C_MCTRL_STOP;
+        }
+
+        I2CMasterControl(hwAttrs->baseAddr, command);
+    }
+    else if (object->readCount) {
+        object->readCount--;
+
+        /* Read data */
+        *(object->readBuf++) = I2CMasterDataGet(hwAttrs->baseAddr);
+
+        if (object->readCount > 1) {
+            /* Send ACK and RUN */
+            command |= I2C_MCTRL_ACK;
+        }
+        else if (object->readCount < 1) {
+            /* Send STOP */
+            command = I2C_MCTRL_STOP;
+        }
+        else {
+            /* Send RUN */
+        }
+
+        I2CMasterControl(hwAttrs->baseAddr, command);
+    }
+    else {
+        I2CMasterControl(hwAttrs->baseAddr, I2C_MCTRL_STOP);
+        object->currentTransaction->status = I2C_STATUS_SUCCESS;
+        I2CCC26XX_completeTransfer(handle);
+    }
+
+    return;
+}
+
+/*
+ *  ======== I2C_setClockTimeout ========
+ */
+int_fast16_t I2C_setClockTimeout(I2C_Handle handle, uint32_t timeout)
+{
+    return (I2C_STATUS_ERROR);
+}
+
+/*
+ *  ======== I2CCC26XX_swiFxn ========
+ *  SWI interrupt handler to service the I2C peripheral
+ *
+ *  Takes care of cleanup and the callback in SWI context after an I2C transfer
+ */
+static void I2CCC26XX_swiFxn(uintptr_t arg0, uintptr_t arg1){
+    I2C_Handle        handle = (I2C_Handle) arg0;
+    I2CCC26XX_Object *object = handle->object;
+    int_fast16_t      status;
+
+    /*
+     *  If this current transaction was canceled, we need to cancel
+     *  any queued transactions
+     */
+    if (object->currentTransaction->status == I2C_STATUS_CANCEL) {
+        /*
+         * Allow callback to run. If in CALLBACK mode, the application
+         * may initiate a transfer in the callback which will call
+         * primeTransfer().
+         */
+        object->transferCallbackFxn(handle, object->currentTransaction, false);
+        object->currentTransaction->status = I2C_STATUS_CANCEL;
+
+        /* release the constraint to disallow standby */
+        Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+
+        /* also dequeue and call the transfer callbacks for any queued transfers */
+        while (object->headPtr != object->tailPtr) {
+            object->headPtr = object->headPtr->nextPtr;
+            object->headPtr->status = I2C_STATUS_CANCEL;
+            object->transferCallbackFxn(handle, object->headPtr, false);
+            object->headPtr->status = I2C_STATUS_CANCEL;
+        }
+
+        /* clean up object */
+        object->currentTransaction = NULL;
+        object->headPtr = NULL;
+        object->tailPtr = NULL;
+    }
+    else if (object->currentTransaction->status == I2C_STATUS_TIMEOUT) {
+        /*
+         * This can only occur in BLOCKING mode. No need to call the blocking
+         * callback as the Semaphore has already timed out.
+         */
+        object->headPtr = NULL;
+        object->tailPtr = NULL;
+
+        /* Release standby disallow constraint. */
+        Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+    }
+    /* See if we need to process any other transactions */
+    else if (object->headPtr == object->tailPtr) {
+
+        /* No other transactions need to occur */
+        object->headPtr = NULL;
+        object->tailPtr = NULL;
+
+        /*
+         * Allow callback to run. If in CALLBACK mode, the application
+         * may initiate a transfer in the callback which will call
+         * primeTransfer().
+         */
+        object->transferCallbackFxn(handle, object->currentTransaction,
+            (object->currentTransaction->status == I2C_STATUS_SUCCESS));
+
+        /* Release standby disallow constraint. */
+        Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+    }
+    else {
+        /* Another transfer needs to take place */
+        object->headPtr = object->headPtr->nextPtr;
+
+        /*
+         * Allow application callback to run. The application may
+         * initiate a transfer in the callback which will add an
+         * additional transfer to the queue.
+         */
+        object->transferCallbackFxn(handle, object->currentTransaction,
+            (object->currentTransaction->status == I2C_STATUS_SUCCESS));
+
+        status = I2CSupport_primeTransfer(handle, object->headPtr);
+
+        /* Call back now if not able to start transfer */
+        if (status != I2C_STATUS_SUCCESS) {
+            /* Transaction status set in primeTransfer() */
+            SwiP_post(&(object->swi));
+        }
+    }
+}
+
+/*
+ *  ======== I2CSupport_masterFinish ========
+ */
+void I2CSupport_masterFinish(I2C_HWAttrs const *hwAttrs)
+{
+    /* Asynchronously generate a STOP condition. */
+    I2CMasterControl(hwAttrs->baseAddr, I2C_MCTRL_STOP);
+}
+
+/*
+ *  ======== I2CSupport_powerRelConstraint =======
+ */
+void I2CSupport_powerRelConstraint(void)
+{
+    /* Release standby disallow constraint. */
+    Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
+}
+
+/*
+ *  ======== I2CSupport_powerSetConstraint =======
+ */
+void I2CSupport_powerSetConstraint(void)
+{
+    /* Set standby disallow constraint. */
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
+}
+
+/*
+ *  ======== I2CSupport_primeTransfer =======
+ */
+int_fast16_t I2CSupport_primeTransfer(I2C_Handle handle,
+    I2C_Transaction *transaction)
+{
+    I2CCC26XX_Object          *object = handle->object;
+    I2CCC26XX_HWAttrsV1 const *hwAttrs = handle->hwAttrs;
+    int_fast16_t               status = I2C_STATUS_SUCCESS;
 
     /* Store the new internal counters and pointers */
     object->currentTransaction = transaction;
 
-    object->writeBufIdx = transaction->writeBuf;
-    object->writeCountIdx = transaction->writeCount;
-
-    object->readBufIdx = transaction->readBuf;
-    object->readCountIdx = transaction->readCount;
-
-    DebugP_log2(
-            "I2C:(%p) Starting transaction to slave: 0x%x",
-            hwAttrs->baseAddr,
-            object->currentTransaction->slaveAddress);
-
-    /* Start transfer in Transmit mode */
-    if (object->writeCountIdx) {
-        /* Specify the I2C slave address */
-        I2CMasterSlaveAddrSet(hwAttrs->baseAddr,
-                              object->currentTransaction->slaveAddress, false);
-        /* Update the I2C mode */
-        object->mode = I2CCC26XX_WRITE_MODE;
-
-        DebugP_log3(
-                "I2C:(%p) I2CCC26XX_IDLE_MODE: Data to write: 0x%x; To Slave: 0x%x",
-                hwAttrs->baseAddr,
-                *(object->writeBufIdx),
-                  object->currentTransaction->slaveAddress);
-
-        /* Write data contents into data register */
-        I2CMasterDataPut(hwAttrs->baseAddr,
-                *((object->writeBufIdx)++));
-
-        /* Check bus status, return with error if busy */
-        if (I2CMasterBusBusy(hwAttrs->baseAddr)) {
-            return I2C_STATUS_ERROR;
-        }
-
-        /* Start the I2C transfer in master transmit mode */
-        I2CMasterControl(hwAttrs->baseAddr, I2C_MASTER_CMD_BURST_SEND_START);
-
-        DebugP_log1(
-                "I2C:(%p) I2CCC26XX_IDLE_MODE: -> I2CCC26XX_WRITE_MODE; "
-                "Writing w/ START",
-                hwAttrs->baseAddr);
-    }
-
-    /* Start transfer in Receive mode */
-    else {
-        /* Specify the I2C slave address */
-        I2CMasterSlaveAddrSet(hwAttrs->baseAddr,
-                              object->currentTransaction->slaveAddress, true);
-
-        /* Update the I2C mode */
-        object->mode = I2CCC26XX_READ_MODE;
-
-        /* Check bus status, return with error if busy */
-        if (I2CMasterBusBusy(hwAttrs->baseAddr)) {
-            return I2C_STATUS_ERROR;
-        }
-
-        if (object->readCountIdx < 2) {
-            /* Start the I2C transfer in master receive mode */
-            I2CMasterControl(hwAttrs->baseAddr,
-                    I2C_MASTER_CMD_BURST_SEND_START);
-
-            DebugP_log1(
-                    "I2C:(%p) I2CCC26XX_IDLE_MODE: -> I2CCC26XX_READ_MODE; "
-                    "Reading w/ NACK",
-                    hwAttrs->baseAddr);
-        }
-        else {
-            /* Start the I2C transfer in master receive mode */
-            I2CMasterControl(hwAttrs->baseAddr,
-                    I2C_MASTER_CMD_BURST_RECEIVE_START);
-
-            DebugP_log1(
-                    "I2C:(%p) I2CCC26XX_IDLE_MODE: -> I2CCC26XX_READ_MODE; "
-                    "Reading w/ ACK",
-                    hwAttrs->baseAddr);
-        }
-    }
-
-    return I2C_STATUS_SUCCESS;
-}
-
-/*!
- *  @brief Function to start a transfer from the CC26XX I2C peripheral specified
- *         by the I2C handle.
- *
- *  This function is used for both transmitting and receiving data. If the I2C
- *  is configured in ::I2C_MODE_CALLBACK mode, it is possible to chain transactions
- *  together and receive a callback when all transactions are done.
- *  When active I2C transactions exist, the device might enter idle, not standby.
- *
- *  @pre    I2CCC26XX_open() has to be called first.
- *          Calling context: Hwi and Swi (only if using ::I2C_MODE_CALLBACK), Task
- *
- *  @param handle An I2C_Handle returned by I2C_open()
- *
- *  @param transaction Pointer to a I2C transaction object
- *
- *  @return true on successful transfer.
- *          false on an error, such as a I2C bus fault.
- *
- *  @note  The generic I2C API should be used when accessing the I2CCC26XX.
- *
- *  @sa    I2CCC26XX_open(), I2C_transfer()
- */
-bool I2CCC26XX_transfer(I2C_Handle handle,
-                        I2C_Transaction *transaction)
-{
-    bool                        ret = false;
-    uintptr_t                   key;
-    I2CCC26XX_Object           *object;
-    I2CCC26XX_HWAttrsV1 const  *hwAttrs;
-    int                         status;
-
-    /* Get the pointer to the object and hwAttrs */
-    object = handle->object;
-    hwAttrs = handle->hwAttrs;
-
-    /* Check if anything needs to be written or read */
-    if ((!transaction->writeCount) && (!transaction->readCount)) {
-        /* Nothing to write or read */
-        return (ret);
-    }
-
-    key = HwiP_disable();
-
-    if (object->transferMode == I2C_MODE_CALLBACK) {
-        /* Check if a transfer is in progress */
-        if (object->headPtr) {
-            /* Transfer in progress */
-
-            /*
-             * Update the message pointed by the tailPtr to point to the next
-             * message in the queue
-             */
-            object->tailPtr->nextPtr = transaction;
-
-            /* Update the tailPtr to point to the last message */
-            object->tailPtr = transaction;
-
-            /* I2C is still being used */
-            HwiP_restore(key);
-            return (true);
-        }
-    }
-
-    /* Store the headPtr indicating I2C is in use */
-    object->headPtr = transaction;
-    object->tailPtr = transaction;
-
-    HwiP_restore(key);
-
-    /* Get the lock for this I2C handle */
-    if (SemaphoreP_pend(&(object->mutex), SemaphoreP_NO_WAIT) == SemaphoreP_TIMEOUT) {
-
-        /* An I2C_transfer() may complete before the calling thread post the
-         * mutex due to preemption. We must not block in this case. */
-        if (object->transferMode == I2C_MODE_CALLBACK) {
-            return (false);
-        }
-
-        SemaphoreP_pend(&(object->mutex), SemaphoreP_WAIT_FOREVER);
-    }
-
-    /* Set standby disallow constraint. */
-    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
+    object->writeBuf = transaction->writeBuf;
+    object->writeCount = transaction->writeCount;
+    object->readBuf = transaction->readBuf;
+    object->readCount = transaction->readCount;
 
     /*
-     * I2CCC26XX_primeTransfer is a longer process and
-     * protection is needed from the I2C interrupt
+     * Transaction is incomplete unless the stop condition occurs AND
+     * all bytes have been sent and received. This condition is checked
+     * in the hardware interrupt.
      */
+    object->currentTransaction->status = I2C_STATUS_INCOMPLETE;
 
-    HwiP_disableInterrupt(hwAttrs->intNum);
-    status = I2CCC26XX_primeTransfer(handle, transaction);
-    HwiP_enableInterrupt(hwAttrs->intNum);
+    /* Determine if the bus is in use by another I2C Master */
+    if (I2CMasterBusBusy(hwAttrs->baseAddr)) {
+        transaction->status = I2C_STATUS_BUS_BUSY;
+        status = I2C_STATUS_BUS_BUSY;
+    }
+    /* Start transfer in Transmit */
+    else if (object->writeCount) {
+        I2CMasterIntEnable(hwAttrs->baseAddr);
 
-    if (object->transferMode == I2C_MODE_BLOCKING) {
-        if (status == I2C_STATUS_ERROR) {
-            DebugP_log1(
-                    "I2C:(%p) Bus busy, transaction not started",
-                    hwAttrs->baseAddr);
-            object->mode = I2CCC26XX_BUSBUSY_MODE;
-            ret = false;
+        /* Specify slave address and transmit mode */
+        I2CMasterSlaveAddrSet(hwAttrs->baseAddr,
+            object->currentTransaction->slaveAddress, false);
 
-            /* Release standby disallow constraint. */
-            Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
-        }
-        else {
-            DebugP_log1(
-                    "I2C:(%p) Pending on transferComplete semaphore",
-                    hwAttrs->baseAddr);
-            /*
-             * Wait for the transfer to complete here.
-             * It's OK to block from here because the I2C's Hwi will unblock
-             * upon errors
-             */
-            SemaphoreP_pend(&(object->transferComplete), SemaphoreP_WAIT_FOREVER);
-
-            /* No need to release standby disallow constraint here - done in swi */
-
-            DebugP_log1(
-                    "I2C:(%p) Transaction completed",
-                    hwAttrs->baseAddr);
-
-            /* Hwi handle has posted a 'transferComplete' check for Errors */
-            if (object->mode == I2CCC26XX_IDLE_MODE) {
-                DebugP_log1(
-                        "I2C:(%p) Transfer OK",
-                        hwAttrs->baseAddr);
-                ret = true;
-            }
-        }
+        I2CMasterDataPut(hwAttrs->baseAddr, *((object->writeBuf)++));
+        I2CMasterControl(hwAttrs->baseAddr, I2C_MASTER_CMD_BURST_SEND_START);
     }
     else {
-        /* Call back now if not able to start transfer */
-        if (status == I2C_STATUS_ERROR) {
-            object->mode = I2CCC26XX_BUSBUSY_MODE;
-            SwiP_post(&(object->swi));
-            ret = false;
+        I2CMasterIntEnable(hwAttrs->baseAddr);
+
+        /* Specify slave address and receive mode */
+        I2CMasterSlaveAddrSet(hwAttrs->baseAddr,
+            object->currentTransaction->slaveAddress, true);
+
+        if (object->readCount == 1) {
+            /* Send START, read 1 data byte, and NACK */
+            I2CMasterControl(hwAttrs->baseAddr,
+                I2C_MASTER_CMD_BURST_RECEIVE_START_NACK);
         }
         else {
-            /* Return true if transaction is started */
-            ret = true;
+            /* Start the I2C transfer in master receive mode */
+            I2CMasterControl(hwAttrs->baseAddr,
+                I2C_MASTER_CMD_BURST_RECEIVE_START);
         }
     }
 
-    /* Release the lock for this particular I2C handle */
-    SemaphoreP_post(&(object->mutex));
+    return (status);
+}
 
-    /* Return status */
-    return (ret);
+/*
+ *  ======== I2CCC26XX_completeTransfer ========
+ *  This function may be invoked in the context of the HWI.
+ */
+static inline void I2CCC26XX_completeTransfer(I2C_Handle handle)
+{
+    I2CCC26XX_Object          *object = handle->object;
+    I2CCC26XX_HWAttrsV1 const *hwAttrs = handle->hwAttrs;
+
+    /* Disable and clear any interrupts */
+    I2CMasterIntDisable(hwAttrs->baseAddr);
+    I2CMasterIntClear(hwAttrs->baseAddr);
+
+    SwiP_post(&(object->swi));
 }
 
 /*
  *  ======== I2CCC26XX_blockingCallback ========
  */
 static void I2CCC26XX_blockingCallback(I2C_Handle handle,
-                                       I2C_Transaction *msg,
-                                       bool transferStatus)
+   I2C_Transaction *msg, bool transferStatus)
 {
-    I2CCC26XX_Object        *object;
+    I2CCC26XX_Object *object = handle->object;
 
-    DebugP_log1("I2C:(%p) posting transferComplete semaphore",
-               ((I2CCC26XX_HWAttrsV1 const  *)(handle->hwAttrs))->baseAddr);
-
-    /* Get the pointer to the object */
-    object = handle->object;
-
-    /* Indicate transfer complete */
     SemaphoreP_post(&(object->transferComplete));
 }
 
 /*
- *  ======== I2CCC26XX_hwInit ========
+ *  ======== I2CCC26XX_initHw ========
  *  This functions initializes the I2C hardware module.
  *
  *  @pre    Function assumes that the I2C handle is pointing to a hardware
  *          module which has already been opened.
  */
 static void I2CCC26XX_initHw(I2C_Handle handle) {
-    I2CCC26XX_Object            *object;
-    I2CCC26XX_HWAttrsV1 const  *hwAttrs;
-    ClockP_FreqHz freq;
+    I2CCC26XX_Object          *object = handle->object;
+    I2CCC26XX_HWAttrsV1 const *hwAttrs = handle->hwAttrs;
+    ClockP_FreqHz              freq;
 
-    /* Get the pointer to the object and hwAttrs */
-    object = handle->object;
-    hwAttrs = handle->hwAttrs;
+    /* Disable and clear interrupts */
+    I2CMasterIntDisable(hwAttrs->baseAddr);
+    I2CMasterIntClear(hwAttrs->baseAddr);
 
     /* Set the I2C configuration */
     ClockP_getCpuFreq(&freq);
-    I2CMasterInitExpClk(hwAttrs->baseAddr, freq.lo, bitRate[object->bitRate]);
-
-    /* Clear any pending interrupts */
-    I2CMasterIntClear(hwAttrs->baseAddr);
+    I2CMasterInitExpClk(hwAttrs->baseAddr, freq.lo,
+        object->bitRate > I2C_100kHz);
 
     /* Enable the I2C Master for operation */
     I2CMasterEnable(hwAttrs->baseAddr);
-
-    /* Unmask I2C interrupts */
-    I2CMasterIntEnable(hwAttrs->baseAddr);
 }
 
 /*
@@ -1016,11 +672,11 @@ static void I2CCC26XX_initHw(I2C_Handle handle) {
  *          module which has already been opened.
  */
 static int I2CCC26XX_initIO(I2C_Handle handle, void *pinCfg) {
-    I2CCC26XX_Object            *object;
+    I2CCC26XX_Object           *object;
     I2CCC26XX_HWAttrsV1 const  *hwAttrs;
     I2CCC26XX_I2CPinCfg         i2cPins;
     PIN_Config                  i2cPinTable[3];
-    uint32_t i=0;
+    uint32_t                    i = 0;
 
     /* Get the pointer to the object and hwAttrs */
     object = handle->object;
@@ -1037,43 +693,42 @@ static int I2CCC26XX_initIO(I2C_Handle handle, void *pinCfg) {
 
     /* Handle error */
     if(i2cPins.pinSDA == PIN_UNASSIGNED || i2cPins.pinSCL == PIN_UNASSIGNED) {
-        return I2C_STATUS_ERROR;
+        return (I2C_STATUS_ERROR);
     }
+
     /* Configure I2C pins SDA and SCL*/
     i2cPinTable[i++] = i2cPins.pinSDA | PIN_INPUT_EN | PIN_PULLUP | PIN_OPENDRAIN;
     i2cPinTable[i++] = i2cPins.pinSCL | PIN_INPUT_EN | PIN_PULLUP | PIN_OPENDRAIN;
     i2cPinTable[i++] = PIN_TERMINATE;
+
     /* Allocate pins*/
     object->hPin = PIN_open(&object->pinState, i2cPinTable);
 
     if (!object->hPin) {
-        return I2C_STATUS_ERROR;
+        return (I2C_STATUS_ERROR);
     }
 
-    /* Set IO muxing for the UART pins */
+    /* Set IO muxing for the I2C pins */
     PINCC26XX_setMux(object->hPin, i2cPins.pinSDA, IOC_PORT_MCU_I2C_MSSDA);
     PINCC26XX_setMux(object->hPin, i2cPins.pinSCL, IOC_PORT_MCU_I2C_MSSCL);
-    return I2C_STATUS_SUCCESS;
+
+    return (I2C_STATUS_SUCCESS);
 }
 
 /*
- *  ======== i2cPostNotify ========
+ *  ======== I2CCC26XX_postNotify ========
  *  This functions is called to notify the I2C driver of an ongoing transition
  *  out of sleep mode.
  *
  *  @pre    Function assumes that the I2C handle (clientArg) is pointing to a
  *          hardware module which has already been opened.
  */
-static int i2cPostNotify(unsigned int eventType, uintptr_t eventArg, uintptr_t clientArg)
+static int I2CCC26XX_postNotify(unsigned int eventType, uintptr_t eventArg, uintptr_t clientArg)
 {
-    /* Return value */
-    int res;
-
     /* reconfigure the hardware if returning from sleep*/
     if (eventType == PowerCC26XX_AWAKE_STANDBY) {
          I2CCC26XX_initHw((I2C_Handle)clientArg);
     }
 
-    res = Power_NOTIFYDONE;
-    return res;
+    return (Power_NOTIFYDONE);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,14 +39,14 @@
 #ifndef ti_drivers_cryptoutils_sharedresources_PKAResourceCC26XX__include
 #define ti_drivers_cryptoutils_sharedresources_PKAResourceCC26XX__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* PKA driver semaphore used to synchronize accesses to the PKA engine */
 extern SemaphoreP_Struct    PKAResourceCC26XX_accessSemaphore;

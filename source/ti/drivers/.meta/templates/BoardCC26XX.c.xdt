@@ -1,0 +1,189 @@
+%%{
+/*
+ * Copyright (c) 2020, Texas Instruments Incorporated - http://www.ti.com
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+/*
+ *  ======== BoardCC26XX.c.xdt ========
+ */
+
+    /* Get boolean template mode */
+    let mode = args[0];
+    let deviceId = system.deviceData.deviceId;
+
+    /* get ti/drivers common utility functions */
+    let Common = system.getScript("/ti/drivers/Common.js");
+%%}
+% if (mode === "prologue") {
+%     /* Prologue template content */
+% }
+% else if (mode === "epilogue") {
+%     /* Epilogue template content */
+% }
+% else if (mode === "initFunctions") {
+%     /* Initialization functions template content */
+#include <stdbool.h>
+
+% if (deviceId.match(/CC13.2.7|CC26.2.7/)) {
+#include <ti/devices/cc13x2x7_cc26x2x7/driverlib/ioc.h>
+#include <ti/devices/cc13x2x7_cc26x2x7/driverlib/cpu.h>
+% }
+% else if (deviceId.match(/CC13.2|CC26.2/)) {
+#include <ti/devices/cc13x2_cc26x2/driverlib/ioc.h>
+#include <ti/devices/cc13x2_cc26x2/driverlib/cpu.h>
+% }
+% else if (deviceId.match(/CC13.1|CC26.1/)) {
+#include <ti/devices/cc13x1_cc26x1/driverlib/ioc.h>
+#include <ti/devices/cc13x1_cc26x1/driverlib/cpu.h>
+% }
+
+#include <ti/drivers/pin/PINCC26XX.h>
+
+/*
+ *  ======== Board_sendExtFlashByte ========
+ */
+void Board_sendExtFlashByte(PIN_Handle pinHandle, uint8_t byte)
+{
+    uint8_t i;
+
+    /* SPI Flash CS */
+    PIN_setOutputValue(pinHandle, IOID_20, 0);
+
+    for (i = 0; i < 8; i++) {
+        PIN_setOutputValue(pinHandle, IOID_10, 0);  /* SPI Flash CLK */
+
+        /* SPI Flash MOSI */
+        PIN_setOutputValue(pinHandle, IOID_9, (byte >> (7 - i)) & 0x01);
+        PIN_setOutputValue(pinHandle, IOID_10, 1);  /* SPI Flash CLK */
+
+        /*
+         * Waste a few cycles to keep the CLK high for at
+         * least 45% of the period.
+         * 3 cycles per loop: 8 loops @ 48 Mhz = 0.5 us.
+         */
+        CPUdelay(8);
+    }
+
+    PIN_setOutputValue(pinHandle, IOID_10, 0);  /* CLK */
+    PIN_setOutputValue(pinHandle, IOID_20, 1);  /* CS */
+
+    /*
+     * Keep CS high at least 40 us
+     * 3 cycles per loop: 700 loops @ 48 Mhz ~= 44 us
+     */
+    CPUdelay(700);
+}
+
+/*
+ *  ======== Board_wakeUpExtFlash ========
+ */
+void Board_wakeUpExtFlash(void)
+{
+    PIN_Config extFlashPinTable[] = {
+        /* SPI Flash CS */
+        IOID_20 | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH | PIN_PUSHPULL |
+                PIN_INPUT_DIS | PIN_DRVSTR_MED,
+        PIN_TERMINATE
+    };
+    PIN_State extFlashPinState;
+    PIN_Handle extFlashPinHandle = PIN_open(&extFlashPinState, extFlashPinTable);
+
+    /*
+     *  To wake up we need to toggle the chip select at
+     *  least 20 ns and ten wait at least 35 us.
+     */
+
+    /* Toggle chip select for ~20ns to wake ext. flash */
+    PIN_setOutputValue(extFlashPinHandle, IOID_20, 0);
+    /* 3 cycles per loop: 1 loop @ 48 Mhz ~= 62 ns */
+    CPUdelay(1);
+    PIN_setOutputValue(extFlashPinHandle, IOID_20, 1);
+    /* 3 cycles per loop: 560 loops @ 48 Mhz ~= 35 us */
+    CPUdelay(560);
+
+    PIN_close(extFlashPinHandle);
+}
+
+/*
+ *  ======== Board_shutDownExtFlash ========
+ */
+void Board_shutDownExtFlash(void)
+{
+    /*
+     *  To be sure we are putting the flash into sleep and not waking it,
+     *  we first have to make a wake up call
+     */
+    Board_wakeUpExtFlash();
+
+    PIN_Config extFlashPinTable[] = {
+        /* SPI Flash CS*/
+        IOID_20 | PIN_GPIO_OUTPUT_EN | PIN_GPIO_HIGH | PIN_PUSHPULL |
+                PIN_INPUT_DIS | PIN_DRVSTR_MED,
+        /* SPI Flash CLK */
+        IOID_10 | PIN_GPIO_OUTPUT_EN | PIN_GPIO_LOW | PIN_PUSHPULL |
+                PIN_INPUT_DIS | PIN_DRVSTR_MED,
+        /* SPI Flash MOSI */
+        IOID_9 | PIN_GPIO_OUTPUT_EN | PIN_GPIO_LOW | PIN_PUSHPULL |
+                PIN_INPUT_DIS | PIN_DRVSTR_MED,
+        /* SPI Flash MISO */
+        IOID_8 | PIN_INPUT_EN | PIN_PULLDOWN,
+        PIN_TERMINATE
+    };
+    PIN_State extFlashPinState;
+    PIN_Handle extFlashPinHandle = PIN_open(&extFlashPinState, extFlashPinTable);
+
+    uint8_t extFlashShutdown = 0xB9;
+
+    Board_sendExtFlashByte(extFlashPinHandle, extFlashShutdown);
+
+    PIN_close(extFlashPinHandle);
+}
+
+% if (!system.modules["/ti/drivers/PIN"]) {
+% let pinConfigs = system.getScript("/ti/drivers/PIN").moduleStatic.config;
+% let pinIntPriority = "7";
+% let pinSwiPriority = "0";
+%
+% for (let i = 0; i < pinConfigs.length; i++) {
+%     if (pinConfigs[i].name == "interruptPriority") {
+%         pinIntPriority = pinConfigs[i].default;
+%     }
+%     else if (pinConfigs[i].name == "softwareInterruptPriority") {
+%         pinSwiPriority = pinConfigs[i].default;
+%     }
+% }
+const PINCC26XX_HWAttrs PINCC26XX_hwAttrs = {
+    .intPriority = `Common.intPriority2Hex(pinIntPriority)`,
+    .swiPriority = `Common.swiPriority2Int(pinSwiPriority)`
+};
+% }
+% }

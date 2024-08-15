@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,80 +47,87 @@
 #include DeviceFamily_constructPath(driverlib/pka.h)
 
 const ECCParams_CurveParams ECCParams_NISTP224 = {
-    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS,
+    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3,
     .length         = NISTP224_PARAM_SIZE_BYTES,
     .prime          = NISTP224_prime.byte,
     .order          = NISTP224_order.byte,
     .a              = NISTP224_a.byte,
     .b              = NISTP224_b.byte,
     .generatorX     = NISTP224_generator.x.byte,
-    .generatorY     = NISTP224_generator.y.byte
+    .generatorY     = NISTP224_generator.y.byte,
+    .cofactor       = 1
 };
 
 const ECCParams_CurveParams ECCParams_NISTP256 = {
-    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS,
+    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3,
     .length         = NISTP256_PARAM_SIZE_BYTES,
     .prime          = NISTP256_prime.byte,
     .order          = NISTP256_order.byte,
     .a              = NISTP256_a.byte,
     .b              = NISTP256_b.byte,
     .generatorX     = NISTP256_generator.x.byte,
-    .generatorY     = NISTP256_generator.y.byte
+    .generatorY     = NISTP256_generator.y.byte,
+    .cofactor       = 1
 };
 
 const ECCParams_CurveParams ECCParams_NISTP384 = {
-    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS,
+    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3,
     .length         = NISTP384_PARAM_SIZE_BYTES,
     .prime          = NISTP384_prime.byte,
     .order          = NISTP384_order.byte,
     .a              = NISTP384_a.byte,
     .b              = NISTP384_b.byte,
     .generatorX     = NISTP384_generator.x.byte,
-    .generatorY     = NISTP384_generator.y.byte
+    .generatorY     = NISTP384_generator.y.byte,
+    .cofactor       = 1
 };
 
 const ECCParams_CurveParams ECCParams_NISTP521 = {
-    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS,
+    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3,
     .length         = NISTP521_PARAM_SIZE_BYTES,
     .prime          = NISTP521_prime.byte,
     .order          = NISTP521_order.byte,
     .a              = NISTP521_a.byte,
     .b              = NISTP521_b.byte,
     .generatorX     = NISTP521_generator.x.byte,
-    .generatorY     = NISTP521_generator.y.byte
+    .generatorY     = NISTP521_generator.y.byte,
+    .cofactor       = 1
 };
 
 const ECCParams_CurveParams ECCParams_BrainpoolP256R1 = {
-    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS,
+    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3,
     .length         = BrainpoolP256R1_PARAM_SIZE_BYTES,
     .prime          = BrainpoolP256R1_prime.byte,
     .order          = BrainpoolP256R1_order.byte,
     .a              = BrainpoolP256R1_a.byte,
     .b              = BrainpoolP256R1_b.byte,
     .generatorX     = BrainpoolP256R1_generator.x.byte,
-    .generatorY     = BrainpoolP256R1_generator.y.byte
+    .generatorY     = BrainpoolP256R1_generator.y.byte,
+    .cofactor       = 1
 };
 
 const ECCParams_CurveParams ECCParams_BrainpoolP384R1 = {
-    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS,
+    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3,
     .length         = BrainpoolP384R1_PARAM_SIZE_BYTES,
     .prime          = BrainpoolP384R1_prime.byte,
     .order          = BrainpoolP384R1_order.byte,
     .a              = BrainpoolP384R1_a.byte,
     .b              = BrainpoolP384R1_b.byte,
     .generatorX     = BrainpoolP384R1_generator.x.byte,
-    .generatorY     = BrainpoolP384R1_generator.y.byte
+    .generatorY     = BrainpoolP384R1_generator.y.byte,
+    .cofactor       = 1
 };
 
 const ECCParams_CurveParams ECCParams_BrainpoolP512R1 = {
-    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS,
+    .curveType      = ECCParams_CURVE_TYPE_SHORT_WEIERSTRASS_AN3,
     .length         = BrainpoolP512R1_PARAM_SIZE_BYTES,
     .prime          = BrainpoolP512R1_prime.byte,
     .order          = BrainpoolP512R1_order.byte,
     .a              = BrainpoolP512R1_a.byte,
     .b              = BrainpoolP512R1_b.byte,
     .generatorX     = BrainpoolP512R1_generator.x.byte,
-    .generatorY     = BrainpoolP512R1_generator.y.byte
+    .generatorY     = BrainpoolP512R1_generator.y.byte,
+    .cofactor       = 1
 };
 
 const ECCParams_CurveParams ECCParams_Curve25519 = {
@@ -131,16 +138,45 @@ const ECCParams_CurveParams ECCParams_Curve25519 = {
     .a              = Curve25519_a.byte,
     .b              = Curve25519_b.byte,
     .generatorX     = Curve25519_generator.x.byte,
-    .generatorY     = Curve25519_generator.y.byte
+    .generatorY     = Curve25519_generator.y.byte,
+    .cofactor       = 1
 };
 
 /*
- *  ======== ECCParams_FormatCurve25519PrivateKey ========
+ *  ======== ECCParams_formatCurve25519PrivateKey ========
  */
-int_fast16_t ECCParams_FormatCurve25519PrivateKey(CryptoKey *myPrivateKey){
-    myPrivateKey->u.plaintext.keyMaterial[0] &= 0xF8;
-    myPrivateKey->u.plaintext.keyMaterial[31] &= 0x7F;
-    myPrivateKey->u.plaintext.keyMaterial[31] |= 0x40;
+int_fast16_t ECCParams_formatCurve25519PrivateKey(CryptoKey *myPrivateKey){
+    myPrivateKey->u.plaintext.keyMaterial[31] &= 0xF8;
+    myPrivateKey->u.plaintext.keyMaterial[0] &= 0x7F;
+    myPrivateKey->u.plaintext.keyMaterial[0] |= 0x40;
+
+    return ECCParams_STATUS_SUCCESS;
+}
+
+/*
+ *  ======== ECCParams_getUncompressedGeneratorPoint ========
+ */
+int_fast16_t ECCParams_getUncompressedGeneratorPoint(const ECCParams_CurveParams *curveParams,
+                                                     uint8_t *buffer,
+                                                     size_t length) {
+
+    size_t paramLength = curveParams->length;
+    size_t pointLength = (paramLength * 2) + 1;
+
+    if (length < pointLength) {
+        return ECCParams_STATUS_ERROR;
+    }
+
+    /* Reverse and concatenate x and y */
+    uint32_t i = 0;
+    for (i = 0; i < paramLength; i++) {
+        buffer[i + 1]               = curveParams->generatorX[paramLength - i - 1];
+        buffer[i + 1 + paramLength] = curveParams->generatorY[paramLength - i - 1];
+    }
+
+    buffer[0] = 0x04;
+    /* Fill the remaining buffer with 0 if needed */
+    memset(buffer + pointLength, 0, length - pointLength);
 
     return ECCParams_STATUS_SUCCESS;
 }

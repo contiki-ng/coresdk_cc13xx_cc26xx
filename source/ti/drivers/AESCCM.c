@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,7 +41,12 @@
 #include <string.h>
 
 #include <ti/drivers/AESCCM.h>
+#include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+/* Extern globals */
+extern const AESCCM_Config AESCCM_config[];
+extern const uint_least8_t AESCCM_count;
 
 const AESCCM_Params AESCCM_defaultParams = {
     .returnBehavior = AESCCM_RETURN_BEHAVIOR_BLOCKING,
@@ -55,6 +60,16 @@ const AESCCM_Params AESCCM_defaultParams = {
  */
 void AESCCM_Params_init(AESCCM_Params *params){
     *params = AESCCM_defaultParams;
+}
+
+/*
+ *  ======== AESCCM_open ========
+ */
+AESCCM_Handle AESCCM_open(uint_least8_t index, const AESCCM_Params *params) {
+    DebugP_assert(index < AESCCM_count);
+
+    AESCCM_Config *config = (AESCCM_Config*)&AESCCM_config[index];
+    return AESCCM_construct(config, params);
 }
 
 /*

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, Texas Instruments Incorporated
+ * Copyright (c) 2016-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -76,7 +76,7 @@
  *  params.recurrenceMode = ADCBuf_RECURRENCE_MODE_ONE_SHOT;
  *
  *  // Open ADCBuf driver
- *  adcBuf = ADCBuf_open(Board_ADCBUF0, &params);
+ *  adcBuf = ADCBuf_open(CONFIG_ADCBUF0, &params);
  *
  *  // Setup conversion structure
  *  ADCBuf_Conversion conversion = {0};
@@ -156,7 +156,7 @@
  *  @code
  *  // ADCBuf callback function
  *  void adcBufCallbackFxn(ADCBuf_Handle handle, ADCBuf_Conversion *conversion,
- *                         void *buffer, uint32_t channel);
+ *                         void *buffer, uint32_t channel, int_fast16_t status);
  *
  *  main()
  *  {
@@ -185,7 +185,7 @@
  *  }
  *
  *  void adcBufCallbackFxn(ADCBuf_Handle handle, ADCBuf_Conversion *conversion,
- *      void *buffer, uint32_t channel)
+ *      void *buffer, uint32_t channel, int_fast16_t status)
  *  {
  *      // Adjust raw ADC values and convert them to microvolts
  *      ADCBuf_adjustRawValues(handle, buffer, ADCBUFFERSIZE,
@@ -303,7 +303,7 @@ extern "C" {
 /*!
  *  @brief    A handle that is returned from an ADCBuf_open() call.
  */
-typedef struct ADCBuf_Config    *ADCBuf_Handle;
+typedef struct ADCBuf_Config_ *ADCBuf_Handle;
 
 /*!
  *  @brief  Defines a conversion to be used with ADCBuf_convert().
@@ -383,6 +383,8 @@ typedef struct
  *  @param[out]  completedChannel    ADCBuf channel the samples were
  *  performed on.
  *
+ *  @param[out]  status    Status of the ADCBuf driver during an interrupt.
+ *
  *  @sa ADCBuf_convert()
  *  @sa ADCBuf_Conversion
  *  @sa ADCBuf_Recurrence_Mode
@@ -391,7 +393,8 @@ typedef struct
 typedef void (*ADCBuf_Callback) (ADCBuf_Handle handle,
                                  ADCBuf_Conversion *conversion,
                                  void *completedADCBuffer,
-                                 uint32_t completedChannel);
+                                 uint32_t completedChannel,
+                                 int_fast16_t status);
 
 /*!
  *  @brief  Recurrence behavior of a #ADCBuf_Conversion specified in the
@@ -628,7 +631,7 @@ typedef struct
  *  @sa     ADCBuf_init()
  *  @sa     ADCBuf_open()
  */
-typedef struct ADCBuf_Config
+typedef struct ADCBuf_Config_
 {
     /*! Pointer to a @ref driver_function_table "function pointer table"
      *  with driver-specific implementations of ADC APIs */

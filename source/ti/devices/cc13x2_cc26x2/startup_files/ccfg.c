@@ -6,7 +6,7 @@
 *  Description:    Customer Configuration for:
 *                  CC13x2, CC13x4, CC26x2, CC26x4 device family (HW rev 2).
 *
-*  Copyright (C) 2018 Texas Instruments Incorporated - http://www.ti.com/
+*  Copyright (C) 2018 - 2020, Texas Instruments Incorporated - http://www.ti.com/
 *
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -82,6 +82,7 @@
 //#####################################
 // Force VDDR high setting (Higher output power but also higher power consumption)
 // This is also called "boost mode"
+// WARNING: CCFG_FORCE_VDDR_HH must not be set to 1 if running in external regulator mode.
 //#####################################
 
 #ifndef CCFG_FORCE_VDDR_HH
@@ -183,7 +184,7 @@
 //#####################################
 
 #ifndef SET_CCFG_MODE_CONF_SCLK_LF_OPTION
-// #define SET_CCFG_MODE_CONF_SCLK_LF_OPTION            0x0        // LF clock derived from High Frequency XOSC
+// #define SET_CCFG_MODE_CONF_SCLK_LF_OPTION            0x0        // LF clock derived from HF clock. Note: using this configuration will block the device from entering Standby mode.
 // #define SET_CCFG_MODE_CONF_SCLK_LF_OPTION            0x1        // External LF clock
 #define SET_CCFG_MODE_CONF_SCLK_LF_OPTION               0x2        // LF XOSC
 // #define SET_CCFG_MODE_CONF_SCLK_LF_OPTION            0x3        // LF RCOSC
@@ -210,9 +211,10 @@
 // Special HF clock source setting
 //#####################################
 #ifndef SET_CCFG_MODE_CONF_XOSC_FREQ
-// #define SET_CCFG_MODE_CONF_XOSC_FREQ                 0x1        // Use HPOSC as HF source (if executing on a HPOSC chip, otherwise using default (=0x3))
-#define SET_CCFG_MODE_CONF_XOSC_FREQ                    0x2        // HF source is a 48 MHz xtal (default on x2/x4 chips)
-// #define SET_CCFG_MODE_CONF_XOSC_FREQ                 0x3        // HF source is a 24 MHz xtal (default on x0 chips)
+// #define SET_CCFG_MODE_CONF_XOSC_FREQ                 0x0        // HF source is 48 MHz TCXO
+// #define SET_CCFG_MODE_CONF_XOSC_FREQ                 0x1        // HF source is HPOSC (BAW) (only valid for CC2652RB)
+#define SET_CCFG_MODE_CONF_XOSC_FREQ                    0x2        // HF source is a 48 MHz xtal
+// #define SET_CCFG_MODE_CONF_XOSC_FREQ                 0x3        // HF source is a 24 MHz xtal (not supported)
 #endif
 
 //#####################################
@@ -350,11 +352,19 @@
 #endif
 
 //#####################################
-// Select TCXO
+// TCXO settings
 //#####################################
 #ifndef SET_CCFG_SIZE_AND_DIS_FLAGS_DIS_TCXO
-#define SET_CCFG_SIZE_AND_DIS_FLAGS_DIS_TCXO            0x1    // Disable TCXO
-// #define SET_CCFG_SIZE_AND_DIS_FLAGS_DIS_TCXO         0x0    // Enable TXCO
+#define SET_CCFG_SIZE_AND_DIS_FLAGS_DIS_TCXO            0x1        // Deprecated. Must be set to 0x1.
+#endif
+
+#ifndef SET_CCFG_MODE_CONF_1_TCXO_TYPE
+#define SET_CCFG_MODE_CONF_1_TCXO_TYPE                  0x1        // 1 = Clipped-sine type.
+//#define SET_CCFG_MODE_CONF_1_TCXO_TYPE                0x0        // 0 = CMOS type.
+#endif
+
+#ifndef SET_CCFG_MODE_CONF_1_TCXO_MAX_START
+#define SET_CCFG_MODE_CONF_1_TCXO_MAX_START             0x7F       // Maximum TCXO startup time in units of 100us.
 #endif
 
 //*****************************************************************************
@@ -403,6 +413,8 @@
 	 ((((uint32_t)( SET_CCFG_EXT_LF_CLK_RTC_INCREMENT                )) << CCFG_EXT_LF_CLK_RTC_INCREMENT_S                ) | ~CCFG_EXT_LF_CLK_RTC_INCREMENT_M                ) )
 
 #define DEFAULT_CCFG_MODE_CONF_1         ( \
+	 ((((uint32_t)( SET_CCFG_MODE_CONF_1_TCXO_TYPE                   )) << CCFG_MODE_CONF_1_TCXO_TYPE_S                   ) | ~CCFG_MODE_CONF_1_TCXO_TYPE_M                   ) & \
+	 ((((uint32_t)( SET_CCFG_MODE_CONF_1_TCXO_MAX_START              )) << CCFG_MODE_CONF_1_TCXO_MAX_START_S              ) | ~CCFG_MODE_CONF_1_TCXO_MAX_START_M              ) & \
 	 ((((uint32_t)( SET_CCFG_MODE_CONF_1_ALT_DCDC_VMIN               )) << CCFG_MODE_CONF_1_ALT_DCDC_VMIN_S               ) | ~CCFG_MODE_CONF_1_ALT_DCDC_VMIN_M               ) & \
 	 ((((uint32_t)( SET_CCFG_MODE_CONF_1_ALT_DCDC_DITHER_EN          )) << CCFG_MODE_CONF_1_ALT_DCDC_DITHER_EN_S          ) | ~CCFG_MODE_CONF_1_ALT_DCDC_DITHER_EN_M          ) & \
 	 ((((uint32_t)( SET_CCFG_MODE_CONF_1_ALT_DCDC_IPEAK              )) << CCFG_MODE_CONF_1_ALT_DCDC_IPEAK_S              ) | ~CCFG_MODE_CONF_1_ALT_DCDC_IPEAK_M              ) & \

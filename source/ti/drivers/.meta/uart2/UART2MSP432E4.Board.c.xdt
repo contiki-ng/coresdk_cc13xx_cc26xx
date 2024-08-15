@@ -1,0 +1,146 @@
+%%{
+/*
+ * Copyright (c) 2020, Texas Instruments Incorporated - http://www.ti.com
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+/*
+ *  ======== UART2MSP432E4.Board.c.xdt ========
+ */
+
+    let Common    = system.getScript("/ti/drivers/Common.js");
+
+    let UART2      = args[0];
+    let instances = UART2.$instances;
+
+    if (instances.length == 0) return;
+
+    let declarations = Common.genBoardDeclarations(instances);
+
+    /* CONFIG_XXXCOUNT string, derived from defaultInstanceName */
+    let countDef = UART2.defaultInstanceName + "COUNT";
+    let numInstances = instances.length;
+
+    let driver = 'UART2MSP432E4';  // In case name changes
+%%}
+/*
+ *  =============================== UART2 ===============================
+ */
+
+#include <ti/drivers/UART2.h>
+#include <ti/drivers/uart2/`driver`.h>
+
+#define `countDef` `instances.length`
+
+`driver`_Object uart2MSP432E4Objects[`countDef`];
+
+% for (let i = 0; i < instances.length; i++) {
+%     let inst = instances[i];
+static unsigned char uart2RxRingBuffer`i`[`inst.rxRingBufferSize`];
+static unsigned char uart2TxRingBuffer`i`[`inst.txRingBufferSize`];
+% }
+
+static const `driver`_HWAttrs uart2MSP432E4HWAttrs[`countDef`] = {
+% for (let i = 0; i < instances.length; i++) {
+%     let inst        = instances[i];
+%     let uart        = inst.uart;
+%     let solution    = uart.$solution;
+%     let peripheral  = system.deviceData.peripherals[solution.peripheralName];
+%     let rxPinName   = driver + '_PIN_UNASSIGNED';
+%     let txPinName   = driver + '_PIN_UNASSIGNED';
+%     let ctsPinName  = driver + '_PIN_UNASSIGNED';
+%     let rtsPinName  = driver + '_PIN_UNASSIGNED';
+%     let rxDmaCh     = driver + '_DMACH_UNASSIGNED';
+%     let txDmaCh     = driver + '_DMACH_UNASSIGNED';
+%
+%     if ('rxPin' in uart) {
+%         let rxName     = uart.rxPin.$solution.devicePinName;
+%         let periphName = uart.rxPin.$solution.peripheralPinName;
+%         rxPinName   = driver + '_' + rxName + '_' + periphName;
+%         rxDmaCh = uart.dmaRxChannel.$solution.devicePinName.substring(7);
+%         rxDmaCh = "UDMA_CH" + rxDmaCh + "_UART" + periphName.substring(1);
+%     }
+%     if ('txPin' in uart) {
+%         let txName     = uart.txPin.$solution.devicePinName;
+%         let periphName = uart.txPin.$solution.peripheralPinName;
+%         txPinName   = driver + '_'+txName+'_'+ periphName;
+%         txDmaCh = uart.dmaTxChannel.$solution.devicePinName.substring(7);
+%         txDmaCh = "UDMA_CH" + txDmaCh + "_UART" + periphName.substring(1);
+%     }
+%
+%     let flowName;
+%     if (inst.flowControl === false) {
+%         flowName = 'UART2_FLOWCTRL_NONE';
+%     }
+%     else {
+%         flowName      = 'UART2_FLOWCTRL_HARDWARE';
+%         if ('ctsPin' in uart) {
+%             let ctsName       = uart.ctsPin.$solution.devicePinName;
+%             let ctsPeriphName = uart.ctsPin.$solution.peripheralPinName;
+%             ctsPinName    = driver + '_'+ctsName+'_'+ctsPeriphName;
+%         }
+%         if ('rtsPin' in uart) {
+%             let rtsName       = uart.rtsPin.$solution.devicePinName;
+%             let rtsPeriphName = uart.rtsPin.$solution.peripheralPinName;
+%             rtsPinName    = driver + '_'+rtsName+'_'+rtsPeriphName;
+%         }
+%     }
+  {
+    .baseAddr           = `peripheral.name`_BASE,
+    .intNum             = INT_`peripheral.name`,
+    .intPriority        = `Common.intPriority2Hex(inst.interruptPriority)`,
+    .flowControl        = `flowName`,
+    .rxPin              = `rxPinName`,
+    .txPin              = `txPinName`,
+    .ctsPin             = `ctsPinName`,
+    .rtsPin             = `rtsPinName`,
+    .rxDmaChannel       = `rxDmaCh`,
+    .txDmaChannel       = `txDmaCh`,
+    .rxBufPtr           = uart2RxRingBuffer`i`,
+    .rxBufSize          = sizeof(uart2RxRingBuffer`i`),
+    .txBufPtr           = uart2TxRingBuffer`i`,
+    .txBufSize          = sizeof(uart2TxRingBuffer`i`)
+  },
+% }
+};
+
+const UART2_Config UART2_config[`countDef`] = {
+% for (let i = 0; i < numInstances; i++) {
+%     let inst    = instances[i];
+    {   /* `inst.$name` */
+        .object      = &uart2MSP432E4Objects[`inst.$name`],
+        .hwAttrs     = &uart2MSP432E4HWAttrs[`inst.$name`]
+    },
+% }
+};
+
+`declarations`
+const uint_least8_t UART2_count = `numInstances`;

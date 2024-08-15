@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, Texas Instruments Incorporated
+ * Copyright (c) 2016-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -305,11 +305,10 @@ SDFatFS_Handle SDFatFS_open(uint_least8_t idx, uint_least8_t drive)
         }
         else {
             obj->driveNum = drive;
+            HwiP_restore(key);
 
             /* Open SD Driver */
             obj->sdHandle = SD_open(idx, NULL);
-
-            HwiP_restore(key);
 
             if (obj->sdHandle == NULL) {
                 obj->driveNum = DRIVE_NOT_MOUNTED;

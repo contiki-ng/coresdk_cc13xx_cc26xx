@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2017 Texas Instruments Incorporated - http://www.ti.com
+ * Copyright (c) 2016-2020 Texas Instruments Incorporated - http://www.ti.com
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -79,8 +79,6 @@ typedef struct mq_attr mq_attr;
 #define O_WRONLY        1
 #define O_RDWR          2
 #define O_NONBLOCK      0x4000  /* Fail with EAGAIN if resources unavailable */
-
-typedef uint32_t mode_t;  /* TODO: sys/stat.h? */
 
 extern int mq_close(mqd_t mqdes);
 extern int mq_getattr(mqd_t mqdes, struct mq_attr *mqstat);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -305,7 +305,7 @@
  *  |#PIN_INV_INOUT     |#PIN_BM_INV_INOUT | Both    | Invert input/output              |
  *  |#PIN_IRQ_DIS (*)   |#PIN_BM_IRQ       | Both    | Disable pin interrupts           |
  *  |#PIN_IRQ_NEGEDGE   |#PIN_BM_IRQ       | Both    | Pin interrupts on negative edges |
- *  |#PIN_IRQ_POSEDGE   |#PIN_BM_IRQ       | Both    | Pin interrupts on negative edges |
+ *  |#PIN_IRQ_POSEDGE   |#PIN_BM_IRQ       | Both    | Pin interrupts on positive edges |
  *  |#PIN_IRQ_BOTHEDGES |#PIN_BM_IRQ       | Both    | Pin interrupts on both edges     |
  *  |                   |#PIN_BM_ALL       |         | Mask for *all* options           |
  *
@@ -339,7 +339,7 @@
  *  ## Initialization and Pin Allocation ##
  *  Example that illustrates when and how to call PIN_init(), PIN_open(), PIN_add(), PIN_close()
  *    @code
- *    // Default pin configuration. Typically resides in Board.c file.
+ *    // Default pin configuration. Typically resides in ti_drivers_config.c file.
  *    // IOs not mentioned here configured to default: input/output/pull disabled
  *    PIN_Config BoardGpioInitTable[] = {
  *        // DIO11: LED A (initially off)
@@ -366,8 +366,8 @@
  *        int                 retc;
  *        int                 detachState;
  *
- *        //Board_initGeneral() will call PIN_init(BoardGpioInitTable)
- *        Board_initGeneral();
+ *        //Board_init() will call PIN_init(BoardGpioInitTable)
+ *        Board_init();
  *
  *        // Set priority and stack size attributes
  *        pthread_attr_init(&attrs);
@@ -556,12 +556,13 @@
 
 #ifndef ti_drivers_PIN__include
 #define ti_drivers_PIN__include
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include <stdbool.h>
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /** @brief  Pin identifier data type
  *

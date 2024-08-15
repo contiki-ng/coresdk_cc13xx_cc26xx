@@ -1,0 +1,121 @@
+%%{
+/*
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated - http://www.ti.com
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+/*
+ *  ======== ADCMSP432E4.Board.c.xdt ========
+ */
+
+    /* passed by /ti/drivers/templates/Board.c.xdt */
+    let ADC = args[0];
+    let instances = ADC.$instances;
+    if (instances.length == 0) return;
+
+    /* get Common /ti/drivers utility functions */
+    let Common = system.getScript("/ti/drivers/Common.js");
+
+    let declarations = Common.genBoardDeclarations(instances);
+
+    /* CONFIG_XXXCOUNT string, derived from defaultInstanceName */
+    let countDef = ADC.defaultInstanceName + "COUNT";
+
+    let map = {
+        "Internal" : "ADCMSP432E4_VREF_INTERNAL",
+        "External" : "ADCMSP432E4_VREF_EXTERNAL_3V"
+    };
+%%}
+/*
+ *  =============================== ADC ===============================
+ */
+
+#include <ti/drivers/ADC.h>
+#include <ti/drivers/adc/ADCMSP432E4.h>
+#include <ti/devices/msp432e4/driverlib/adc.h>
+
+#define `countDef` `instances.length`
+
+/*
+ *  ======== ADCMSP432E4Objects ========
+ */
+ADCMSP432E4_Object ADCMSP432E4Objects[`countDef`];
+
+/*
+ *  ======== ADCMSP432E4HWAttrs ========
+ */
+const ADCMSP432E4_HWAttrsV1 ADCMSP432E4HWAttrs[`countDef`] = {
+% for (let i = 0; i < instances.length; i++) {
+    % let inst = instances[i];
+    % let pinPort = inst.adc.adcPin.$solution.devicePinName.substring(0,2);
+    % let pinNum = inst.adc.adcPin.$solution.devicePinName.substring(2, 4);
+    % let adcChan = inst.adc.adcPin.$solution.peripheralPinName; // AINX | AINX_1
+    % adcChan = (adcChan.match(/AIN\d{1,2}/i)[0]).replace("AIN", "");
+    % let adcPin = "ADCMSP432E4_" + pinPort + "_" + pinNum + "_A" + adcChan;
+    % let adcSeq = "ADCMSP432E4_SEQ" + inst.sequencer;
+    % let adcMod = "ADCMSP432E4_MOD" + inst.adc.$solution.peripheralName.substring(3);
+    /* `inst.$name` */
+    % if (inst.$hardware) {
+    %    if (inst.$hardware.displayName) {
+    /* `inst.$hardware.displayName` */
+    %    }
+    % }
+    {
+        .adcPin = `adcPin`,
+        .refVoltage = `map[inst.referenceSource]`,
+        .adcModule = `adcMod`,
+        .adcSeq = `adcSeq`
+    },
+% }
+};
+
+/*
+ *  ======== ADC_config ========
+ */
+const ADC_Config ADC_config[`countDef`] = {
+% for (let i = 0; i < instances.length; i++) {
+    % let inst = instances[i];
+    /* `inst.$name` */
+    % if (inst.$hardware) {
+    %    if (inst.$hardware.displayName) {
+    /* `inst.$hardware.displayName` */
+    %    }
+    % }
+    {
+        .fxnTablePtr = &ADCMSP432E4_fxnTable,
+        .object = &ADCMSP432E4Objects[`inst.$name`],
+        .hwAttrs = &ADCMSP432E4HWAttrs[`inst.$name`]
+    },
+% }
+};
+
+`declarations`
+const uint_least8_t ADC_count = `countDef`;

@@ -245,7 +245,7 @@ extern "C" {
 /*!
  *  @brief      A handle that is returned from an ADC_open() call.
  */
-typedef struct ADC_Config     *ADC_Handle;
+typedef struct ADC_Config_ *ADC_Handle;
 
 /*!
  *  @brief  ADC Parameters used with ADC_open().
@@ -343,7 +343,7 @@ typedef struct {
  *  @sa     ADC_init()
  *  @sa     ADC_open()
  */
-typedef struct ADC_Config {
+typedef struct ADC_Config_ {
     /*! Pointer to a @ref driver_function_table "function pointer table"
      *  with driver-specific implementations of ADC APIs */
     ADC_FxnTable const *fxnTablePtr;

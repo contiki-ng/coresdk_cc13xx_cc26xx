@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  *  @file       SHA2.h
  *
  *  @brief      SHA2 driver header
- *
- * @warning     This is a beta API. It may change in future releases.
  *
  *  @anchor ti_drivers_SHA2_Overview
  *  # Overview #
@@ -202,6 +200,82 @@
  *  SHA2_close(handle);
  *  @endcode
  *
+ *  ## One-step HMAC operation #
+ *
+ *  The #SHA2_hmac() function can perform a SHA2 operation in a single call.
+ *  It will always use the most highly optimized routine with the least overhead
+ *  and the fastest runtime. It requires that the entire input message is
+ *  available to the function in a contiguous location at the start of the call.
+ *
+ *  After a SHA2 operation completes, the application may either start
+ *  another operation or close the driver by calling #SHA2_close().
+ *
+ *  @code
+ *  SHA2_Params params;
+ *  SHA2_Handle handle;
+ *  int_fast16_t result;
+ *  CryptoKey hmacKey;
+ *
+ *  uint8_t message[] = {
+ *          0xb1, 0x68, 0x9c, 0x25, 0x91, 0xea, 0xf3, 0xc9,
+ *          0xe6, 0x60, 0x70, 0xf8, 0xa7, 0x79, 0x54, 0xff,
+ *          0xb8, 0x17, 0x49, 0xf1, 0xb0, 0x03, 0x46, 0xf9,
+ *          0xdf, 0xe0, 0xb2, 0xee, 0x90, 0x5d, 0xcc, 0x28,
+ *          0x8b, 0xaf, 0x4a, 0x92, 0xde, 0x3f, 0x40, 0x01,
+ *          0xdd, 0x9f, 0x44, 0xc4, 0x68, 0xc3, 0xd0, 0x7d,
+ *          0x6c, 0x6e, 0xe8, 0x2f, 0xac, 0xea, 0xfc, 0x97,
+ *          0xc2, 0xfc, 0x0f, 0xc0, 0x60, 0x17, 0x19, 0xd2,
+ *          0xdc, 0xd0, 0xaa, 0x2a, 0xec, 0x92, 0xd1, 0xb0,
+ *          0xae, 0x93, 0x3c, 0x65, 0xeb, 0x06, 0xa0, 0x3c,
+ *          0x9c, 0x93, 0x5c, 0x2b, 0xad, 0x04, 0x59, 0x81,
+ *          0x02, 0x41, 0x34, 0x7a, 0xb8, 0x7e, 0x9f, 0x11,
+ *          0xad, 0xb3, 0x04, 0x15, 0x42, 0x4c, 0x6c, 0x7f,
+ *          0x5f, 0x22, 0xa0, 0x03, 0xb8, 0xab, 0x8d, 0xe5,
+ *          0x4f, 0x6d, 0xed, 0x0e, 0x3a, 0xb9, 0x24, 0x5f,
+ *          0xa7, 0x95, 0x68, 0x45, 0x1d, 0xfa, 0x25, 0x8e};
+ *
+ *  // In this case, keyingMaterial is 40 bytes long. It could also be
+ *  // any other length.
+ *  uint8_t keyingMaterial[] = {
+ *          0x97, 0x79, 0xd9, 0x12, 0x06, 0x42, 0x79, 0x7f,
+ *          0x17, 0x47, 0x02, 0x5d, 0x5b, 0x22, 0xb7, 0xac,
+ *          0x60, 0x7c, 0xab, 0x08, 0xe1, 0x75, 0x8f, 0x2f,
+ *          0x3a, 0x46, 0xc8, 0xbe, 0x1e, 0x25, 0xc5, 0x3b,
+ *          0x8c, 0x6a, 0x8f, 0x58, 0xff, 0xef, 0xa1, 0x76};
+ *
+ *
+ *
+ *  uint8_t actualHmac[SHA2_DIGEST_LENGTH_BYTES_256];
+ *  uint8_t expectedHmac[] = {
+ *      0x76, 0x9f, 0x00, 0xd3, 0xe6, 0xa6, 0xcc, 0x1f,
+ *      0xb4, 0x26, 0xa1, 0x4a, 0x4f, 0x76, 0xc6, 0x46,
+ *      0x2e, 0x61, 0x49, 0x72, 0x6e, 0x0d, 0xee, 0x0e,
+ *      0xc0, 0xcf, 0x97, 0xa1, 0x66, 0x05, 0xac, 0x8b
+ *  };
+ *
+ *  SHA2_init();
+ *
+ *  SHA2_Params_init(&params);
+ *  params.returnBehavior = SHA2_RETURN_BEHAVIOR_BLOCKING;
+ *  handle = SHA2_open(0, &params);
+ *  assert(handle != NULL);
+ *
+ *  CryptoKeyPlaintext_initKey(&hmacKey,
+ *                             keyingMaterial,
+ *                             sizeof(keyingMaterial));
+ *
+ *  result = SHA2_hmac(handle,
+ *                     &hmacKey,
+ *                     message,
+ *                     sizeof(message),
+ *                     actualHmac);
+ *  assert(result == SHA2_STATUS_SUCCESS);
+ *
+ *  result = memcmp(actualHmac, expectedHmac, SHA2_DIGEST_LENGTH_BYTES_256);
+ *  assert(result == 0);
+ *
+ *  SHA2_close(handle);
+ *  @endcode
  */
 
 #ifndef ti_drivers_SHA2__include
@@ -210,6 +284,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <ti/drivers/cryptoutils/cryptokey/CryptoKey.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -349,7 +425,7 @@ typedef enum {
  *
  *  @sa     SHA2_init()
  */
-typedef struct SHA2_Config {
+typedef struct {
     /*! Pointer to a driver specific data object */
     void               *object;
 
@@ -394,7 +470,7 @@ typedef struct {
 } SHA2_Params;
 
 /*!
- * \brief Global SHA2 configuration struct.
+ * @brief Global SHA2 configuration struct.
  *
  * Specifies context objects and hardware attributes for every
  * driver instance.
@@ -404,7 +480,7 @@ typedef struct {
 extern const SHA2_Config SHA2_config[];
 
 /*!
- * \brief Global SHA2 configuration count.
+ * @brief Global SHA2 configuration count.
  *
  * Specifies the amount of available SHA2 driver instances.
  *
@@ -474,27 +550,60 @@ SHA2_Handle SHA2_open(uint_least8_t index, const SHA2_Params *params);
 void SHA2_close(SHA2_Handle handle);
 
 /*!
- *  @brief  Adds a segment of \a data with a \a length in bytes to the cryptographic hash.
+ *  @brief  Starts an HMAC operation on segmented data
  *
- *  %SHA2_addData() may be called arbitrary times before finishing the operation with
- *  #SHA2_finalize().
+ *  This function uses @c key to compute the all intermediate results involving
+ *  @c key as specified in FIPS 198-1.
+ *
+ *  This function blocks until the final digest hash been computed.
+ *  It returns immediately when ::SHA2_RETURN_BEHAVIOR_CALLBACK is set.
+ *
+ *  @pre    #SHA2_open() has to be called first.
+ *
+ *  @post   Call #SHA2_addData() and #SHA2_finalizeHmac()
+ *
+ *  @param  handle  A #SHA2_Handle returned from #SHA2_open()
+ *
+ *  @param  key     The key with which to sign the message with
+ *
+ *  @retval #SHA2_STATUS_SUCCESS               The hash operation succeeded.
+ *  @retval #SHA2_STATUS_ERROR                 The hash operation failed.
+ *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource
+ *                                             was not available. Try again
+ *                                             later.
+ *  @retval #SHA2_STATUS_CANCELED              The hash operation was canceled.
+ *
+ *  @sa     #SHA2_reset()
+ */
+int_fast16_t SHA2_setupHmac(SHA2_Handle handle, CryptoKey *key);
+
+/*!
+ *  @brief  Adds a segment of @c data with a @c length in bytes to the
+ *          cryptographic hash or HMAC.
+ *
+ *  %SHA2_addData() may be called arbitrary times before finishing the
+ *  operation with #SHA2_finalize().
  *
  *  This function blocks until the final digest hash been computed.
  *  It returns immediately when ::SHA2_RETURN_BEHAVIOR_CALLBACK is set.
  *
  *
  *  @pre    #SHA2_open() has to be called first.
+ *  @pre    If computing an HMAC, #SHA2_setupHmac() must be called first.
  *
  *  @param  handle   A #SHA2_Handle returned from #SHA2_open()
  *
  *  @param  data     Pointer to the location to read from.
- *                   There might be alignment restrictions on different platforms.
+ *                   There might be alignment restrictions on different
+ *                   platforms.
  *
  *  @param  length   Length of the message segment to hash, in bytes.
  *
  *  @retval #SHA2_STATUS_SUCCESS               The hash operation succeeded.
  *  @retval #SHA2_STATUS_ERROR                 The hash operation failed.
- *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
+ *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource
+ *                                             was not available. Try again
+ *                                             later.
  *  @retval #SHA2_STATUS_CANCELED              The hash operation was canceled.
  *
  *  @sa     #SHA2_open(), #SHA2_reset(), #SHA2_finalize()
@@ -502,38 +611,7 @@ void SHA2_close(SHA2_Handle handle);
 int_fast16_t SHA2_addData(SHA2_Handle handle, const void* data, size_t length);
 
 /*!
- *  @brief  Hashes a segment of \a data with a \a size in bytes and writes the
- *          resulting hash to \a digest.
- *
- *  The digest content is computed in one step. Intermediate data from a previous
- *  partial operation started with #SHA2_addData() is discarded.
- *
- *  This function blocks until the final digest hash been computed.
- *  It returns immediately when ::SHA2_RETURN_BEHAVIOR_CALLBACK is set.
- *
- *  @pre    #SHA2_open() has to be called first.
- *
- *  @param  handle   A #SHA2_Handle returned from #SHA2_open()
- *
- *  @param  data     Pointer to the location to read from.
- *                   There might be alignment restrictions on different platforms.
- *
- *  @param  size     Length of the message segment to hash, in bytes.
- *
- *  @param  digest   Pointer to the location to write the digest to.
- *                   There might be alignment restrictions on different platforms.
- *
- *  @retval #SHA2_STATUS_SUCCESS               The hash operation succeeded.
- *  @retval #SHA2_STATUS_ERROR                 The hash operation failed.
- *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
- *  @retval #SHA2_STATUS_CANCELED              The hash operation was canceled.
- *
- *  @sa     #SHA2_open()
- */
-int_fast16_t SHA2_hashData(SHA2_Handle handle, const void* data, size_t size, void *digest);
-
-/*!
- *  @brief  Finishes hash a operation and writes the result to \a digest.
+ *  @brief  Finishes a hash operation and writes the result to \a digest.
  *
  *  This function finishes a hash operation that has been previously started
  *  by #SHA2_addData().
@@ -549,12 +627,121 @@ int_fast16_t SHA2_hashData(SHA2_Handle handle, const void* data, size_t size, vo
  *
  *  @retval #SHA2_STATUS_SUCCESS               The hash operation succeeded.
  *  @retval #SHA2_STATUS_ERROR                 The hash operation failed.
- *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource was not available. Try again later.
+ *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource
+ *                                             was not available. Try again
+ *                                             later.
  *  @retval #SHA2_STATUS_CANCELED              The hash operation was canceled.
  *
  *  @sa     #SHA2_open(), #SHA2_addData()
  */
 int_fast16_t SHA2_finalize(SHA2_Handle handle, void *digest);
+
+/*!
+ *  @brief  Finishes an HMAC operation and writes the result to @c hmac.
+ *
+ *  This function finishes a an HMAC operation that has been previously started
+ *  by #SHA2_setupHmac() and #SHA2_addData().
+ *
+ *  This function blocks until the final digest hash been computed.
+ *  It returns immediately when ::SHA2_RETURN_BEHAVIOR_CALLBACK is set.
+ *
+ *  @pre    #SHA2_setupHmac() must be called prior.
+ *  @pre    #SHA2_addData() should be called after #SHA2_setupHmac().
+ *
+ *  @param  handle      A #SHA2_Handle returned from #SHA2_open()
+ *
+ *  @param  hmac        Pointer to the location to write the digest to.
+ *
+ *  @retval #SHA2_STATUS_SUCCESS               The hash operation succeeded.
+ *  @retval #SHA2_STATUS_ERROR                 The hash operation failed.
+ *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource
+ *                                             was not available. Try again
+ *                                             later.
+ *  @retval #SHA2_STATUS_CANCELED              The hash operation was canceled.
+ *
+ *  @sa     #SHA2_open(), #SHA2_setupHmac() #SHA2_addData()
+ */
+int_fast16_t SHA2_finalizeHmac(SHA2_Handle handle, void *hmac);
+
+/*!
+ *  @brief  Hashes a segment of \a data with a \a size in bytes and writes the
+ *          resulting hash to \a digest.
+ *
+ *  The digest content is computed in one step. Intermediate data from a
+ *  previous partial operation started with #SHA2_addData() is discarded.
+ *
+ *  This function blocks until the final digest hash been computed.
+ *  It returns immediately when ::SHA2_RETURN_BEHAVIOR_CALLBACK is set.
+ *
+ *  @pre    #SHA2_open() has to be called first.
+ *
+ *  @param  handle   A #SHA2_Handle returned from #SHA2_open()
+ *
+ *  @param  data     Pointer to the location to read from.
+ *                   There might be alignment restrictions on different
+ *                   platforms.
+ *
+ *  @param  dataLength Length of the message @c data, in bytes.
+ *
+ *  @param  digest   Pointer to the location to write the digest to.
+ *                   There might be alignment restrictions on different
+ *                   platforms.
+ *
+ *  @retval #SHA2_STATUS_SUCCESS               The hash operation succeeded.
+ *  @retval #SHA2_STATUS_ERROR                 The hash operation failed.
+ *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource
+ *                                             was not available. Try again
+ *                                             later.
+ *  @retval #SHA2_STATUS_CANCELED              The hash operation was canceled.
+ *
+ *  @sa     #SHA2_open()
+ */
+int_fast16_t SHA2_hashData(SHA2_Handle handle,
+                           const void* data,
+                           size_t dataLength,
+                           void *digest);
+
+/*!
+ *  @brief  Creates a keyed hash of @c data with @c key.
+ *
+ *  This function signs @c data using @c key using the keyed-hash message
+ *  authenication code (HMAC) algorithm specified in FIPS 198-1.
+ *
+ *  This function expects all of @c data to be available in contiguous memory.
+ *
+ *  Intermediate data from a previous
+ *  partial operation started with #SHA2_addData() is discarded.
+ *
+ *  This function blocks until the final digest hash been computed.
+ *  It returns immediately when ::SHA2_RETURN_BEHAVIOR_CALLBACK is set.
+ *
+ *  @pre    #SHA2_open() has to be called first.
+ *
+ *  @param  handle  A #SHA2_Handle returned from #SHA2_open()
+ *
+ *  @param  key     The key with which @c data is signed
+ *
+ *  @param  data    Pointer to the location to read from.
+ *                  There might be alignment restrictions on different platforms.
+ *
+ *  @param  dataLength Length of the message @c data, in bytes.
+ *
+ *  @param  hmac    Pointer to the location to write the HMAC to.
+ *                  There might be alignment restrictions on different platforms.
+ *
+ *  @retval #SHA2_STATUS_SUCCESS               The hash operation succeeded.
+ *  @retval #SHA2_STATUS_ERROR                 The hash operation failed.
+ *  @retval #SHA2_STATUS_RESOURCE_UNAVAILABLE  The required hardware resource
+ *                                             was not available. Try again
+ *                                             later.
+ *
+ *  @sa     #SHA2_open()
+ */
+int_fast16_t SHA2_hmac(SHA2_Handle handle,
+                       CryptoKey *key,
+                       const void *data,
+                       size_t dataLength,
+                       void *hmac);
 
 /*!
  *  @brief Clears internal buffers and aborts an ongoing SHA2 operation.
@@ -584,7 +771,7 @@ void SHA2_reset(SHA2_Handle handle);
 int_fast16_t SHA2_cancelOperation(SHA2_Handle handle);
 
 /*!
- *  @brief  Selects a new hash algorithm \a type.
+ *  @brief  Selects a new hash algorithm @a type.
  *
  *  This function changes the hash algorithm type of the hash digest at
  *  run-time. The hash type is usually specified during #SHA2_open().
@@ -604,6 +791,30 @@ int_fast16_t SHA2_cancelOperation(SHA2_Handle handle);
  */
 int_fast16_t SHA2_setHashType(SHA2_Handle handle, SHA2_HashType type);
 
+/**
+ *  @brief  Constructs a new SHA2 object
+ *
+ *  Unlike #SHA2_open(), #SHA2_construct() does not require the hwAttrs and
+ *  object to be allocated in a #SHA2_Config array that is indexed into.
+ *  Instead, the #SHA2_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #SHA2_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #SHA2_Params to configure the driver instance.
+ *
+ *  @return        Returns a #SHA2_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+SHA2_Handle SHA2_construct(SHA2_Config *config, const SHA2_Params *params);
 
 #ifdef __cplusplus
 }

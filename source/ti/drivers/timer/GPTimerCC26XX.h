@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -143,10 +143,6 @@
 #ifndef ti_drivers_timer_GPTIMERCC26XX__include
 #define ti_drivers_timer_GPTIMERCC26XX__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -158,6 +154,10 @@ extern "C" {
 #include DeviceFamily_constructPath(driverlib/event.h)
 #include DeviceFamily_constructPath(driverlib/ioc.h)
 #include DeviceFamily_constructPath(driverlib/timer.h)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Backwards compatibility - old timer modes. New behaviour is count-up by default but configurable. */
 #define GPT_MODE_ONESHOT_UP GPT_MODE_ONESHOT
@@ -380,6 +380,7 @@ typedef struct GPTimerCC26XX_Object
     HwiP_Struct           hwi[GPT_PARTS_COUNT];             /*!< Hardware interrupt struct */
     GPTimerCC26XX_HwiFxn hwiCallbackFxn[GPT_PARTS_COUNT];  /*!< Hardware interrupt callback function */
     volatile bool        powerConstraint[GPT_PARTS_COUNT]; /*!< Standby power constraint flag */
+    uint32_t             arg;                              /*!< Arbritrary Argument */
 } GPTimerCC26XX_Object;
 
 
@@ -658,6 +659,32 @@ extern void GPTimerCC26XX_disableInterrupt(GPTimerCC26XX_Handle handle, GPTimerC
  *  @sa     GPTimerCC26XX_open
  */
 extern void GPTimerCC26XX_configureDebugStall(GPTimerCC26XX_Handle handle, GPTimerCC26XX_DebugMode mode);
+
+/*!
+ *  @brief  Function to get a custom argument.
+ *
+ *  @pre    GPTimerCC26XX_open() has to be called first successfully
+ *  @pre    GPTimerCC26XX_setArg() has to be called first
+ *
+ *  @param  handle   A GPTimerCC26XX handle returned from GPTimerCC26XX_open
+ *
+ *  @sa     GPTimerCC26XX_setArg
+ *  @sa     GPTimerCC26XX_open
+ */
+extern uint32_t GPTimerCC26XX_getArg(GPTimerCC26XX_Handle handle);
+
+/*!
+ *  @brief  Function to set a custom argument.
+ *
+ *  @pre    GPTimerCC26XX_open() has to be called first successfully
+ *
+ *  @param  handle   A GPTimerCC26XX handle returned from GPTimerCC26XX_open
+ *  @param  arg      Pointer to a custom argument
+ *
+ *  @sa     GPTimerCC26XX_getArg
+ *  @sa     GPTimerCC26XX_open
+ */
+extern void GPTimerCC26XX_setArg(GPTimerCC26XX_Handle handle, void *arg);
 
 /*!
  *  @brief  Function to return the PIN mux used by the GPTimer identified by

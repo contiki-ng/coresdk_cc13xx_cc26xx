@@ -137,7 +137,7 @@ const uint32_t outPinStrengths [] = {
 /*
  * Device specific interpretation of the GPIO_PinConfig content
  */
-typedef struct PinConfig {
+typedef struct {
     uint8_t ioid;
     uint8_t added;  /* 0 = pin has not been added to gpioPinState */
     uint16_t config;
@@ -148,7 +148,7 @@ typedef struct PinConfig {
  * Used by pin callback function to locate callback assigned
  * to a pin.
  */
-typedef struct PortCallbackInfo {
+typedef struct {
     /*
      * the port's corresponding
      * user defined pinId indices
@@ -173,7 +173,7 @@ static uint32_t configIntsEnabledMask = 0;
  */
 static bool initCalled = false;
 
-extern const GPIOCC26XX_Config GPIOCC26XX_config;
+__attribute__((weak))extern const GPIOCC26XX_Config GPIOCC26XX_config;
 
 /*
  *  ======== getInPinTypesIndex ========

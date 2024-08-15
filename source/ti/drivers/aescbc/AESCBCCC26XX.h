@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,8 +33,6 @@
  *  @file       AESCBCCC26XX.h
  *
  *  @brief      AESCBC driver implementation for the CC26XX family
- *
- *  @warning     This is a beta API. It may change in future releases.
  *
  *  This file should only be included in the board file to fill the AESCBC_config
  *  struct.
@@ -72,10 +70,6 @@
 #ifndef ti_drivers_aescbc_AESCBCCC26XX__include
 #define ti_drivers_aescbc_AESCBCCC26XX__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -83,13 +77,17 @@ extern "C" {
 
 #include <ti/drivers/dpl/SwiP.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*!
  *  @brief      AESCBCCC26XX Hardware Attributes
  *
  *  AESCBC26XX hardware attributes should be included in the board file
  *  and pointed to by the AESCBC_config struct.
  */
-typedef struct AESCBCCC26XX_HWAttrs {
+typedef struct {
     /*! @brief Crypto Peripheral's interrupt priority.
 
         The CC26xx uses three of the priority bits, meaning ~0 has the same effect as (7 << 5).
@@ -110,16 +108,18 @@ typedef struct AESCBCCC26XX_HWAttrs {
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct AESCBCCC26XX_Object {
+typedef struct {
     bool                            isOpen;
     bool                            operationInProgress;
     bool                            operationCanceled;
+    bool                            threadSafe;
     int_fast16_t                    returnStatus;
     AESCBC_ReturnBehavior           returnBehavior;
     AESCBC_OperationType            operationType;
     uint32_t                        semaphoreTimeout;
     AESCBC_CallbackFxn              callbackFxn;
     AESCBC_Operation                *operation;
+    uint8_t                         iv[16];
 } AESCBCCC26XX_Object;
 
 #ifdef __cplusplus

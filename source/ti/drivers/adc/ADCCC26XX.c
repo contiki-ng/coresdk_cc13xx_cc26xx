@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018, Texas Instruments Incorporated
+ * Copyright (c) 2016-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -59,7 +59,8 @@
 
 #if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X0_CC26X0)
     #include DeviceFamily_constructPath(driverlib/aux_wuc.h)
-#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
+#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2 || \
+    DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X1_CC26X1)
     #define AUX_EVCTL_EVTOMCUFLAGS_ADC_DONE         AUX_EVCTL_EVTOMCUFLAGS_AUX_ADC_DONE
     #define AUX_EVCTL_EVTOMCUFLAGS_ADC_IRQ          AUX_EVCTL_EVTOMCUFLAGS_AUX_ADC_IRQ
 #endif
@@ -105,7 +106,7 @@ const ADC_FxnTable ADCCC26XX_fxnTable = {
  * =============================================================================
  */
 
-/* Keep track the adc handle instance to create and delete adcSemaphore */
+/* Keep track of the adc handle instance to create and delete adcSemaphore */
 static uint16_t adcInstance = 0;
 
 /* Semaphore to arbitrate access to the single ADC peripheral between multiple handles */
@@ -184,10 +185,11 @@ int_fast16_t ADCCC26XX_convert(ADC_Handle handle, uint16_t *value){
     Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
     /* Acquire the ADC hw semaphore. Return an error if the hw semaphore is not
-     * available. There is only one interrupt available for the hw semaphores and it
-     * is used by the TDC already. Busy-wait polling might lock up the device and starting
-     * timeout clocks would add overhead and be clunky. It is better if such functionality
-     * is implemented at application level if desired.
+     * available. There is only one interrupt available for the hw semaphores
+     * and it is used by the TDC already. Busy-wait polling might lock up the
+     * device and starting timeout clocks would add overhead and be clunky. It
+     * is better if such functionality is implemented at application level
+     * if desired.
      */
     if(!AUXSMPHTryAcquire(AUX_SMPH_2)){
         Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
@@ -209,7 +211,8 @@ int_fast16_t ADCCC26XX_convert(ADC_Handle handle, uint16_t *value){
     }
 
     /* Use synchronous sampling mode and prepare for trigger */
-    AUXADCEnableSync(hwAttrs->refSource, hwAttrs->samplingDuration, hwAttrs->triggerSource);
+    AUXADCEnableSync(hwAttrs->refSource, hwAttrs->samplingDuration,
+                     hwAttrs->triggerSource);
 
     /* Manually trigger the ADC once */
     AUXADCGenManualTrigger();
@@ -219,7 +222,7 @@ int_fast16_t ADCCC26XX_convert(ADC_Handle handle, uint16_t *value){
 
     /* Get the status of the ADC_IRQ line and ADC_DONE.
      * Despite not using the interrupt line, we need to clear it so that the
-     * ADCBuf driver does not call Hwi_construct and have thte interrupt fire
+     * ADCBuf driver does not call Hwi_construct and have the interrupt fire
      * immediately.
      */
     interruptStatus = HWREG(AUX_EVCTL_BASE + AUX_EVCTL_O_EVTOMCUFLAGS) &
@@ -254,7 +257,8 @@ int_fast16_t ADCCC26XX_convert(ADC_Handle handle, uint16_t *value){
     if (hwAttrs->returnAdjustedVal) {
         uint32_t gain = AUXADCGetAdjustmentGain(hwAttrs->refSource);
         uint32_t offset = AUXADCGetAdjustmentOffset(hwAttrs->refSource);
-        conversionValue = AUXADCAdjustValueForGainAndOffset(conversionValue, gain, offset);
+        conversionValue = AUXADCAdjustValueForGainAndOffset(conversionValue,
+                                                            gain, offset);
     }
 
     *value = conversionValue;
@@ -268,7 +272,7 @@ int_fast16_t ADCCC26XX_convert(ADC_Handle handle, uint16_t *value){
  *  ======== ADCCC26XX_convertToMicroVolts ========
  */
 uint32_t ADCCC26XX_convertToMicroVolts(ADC_Handle handle, uint16_t adcValue){
-    ADCCC26XX_HWAttrs     const *hwAttrs;
+    ADCCC26XX_HWAttrs           const *hwAttrs;
     uint32_t                    adjustedValue;
 
     DebugP_assert(handle);
@@ -276,17 +280,29 @@ uint32_t ADCCC26XX_convertToMicroVolts(ADC_Handle handle, uint16_t adcValue){
     /* Get the pointer to the hwAttrs */
     hwAttrs = handle->hwAttrs;
 
-    /* Only apply trim if specified*/
+    /* Only apply trim if specified */
     if (hwAttrs->returnAdjustedVal) {
         adjustedValue = adcValue;
     }
     else {
         uint32_t gain = AUXADCGetAdjustmentGain(hwAttrs->refSource);
         uint32_t offset = AUXADCGetAdjustmentOffset(hwAttrs->refSource);
-        adjustedValue = AUXADCAdjustValueForGainAndOffset(adcValue, gain, offset);
+        adjustedValue = AUXADCAdjustValueForGainAndOffset(adcValue, gain,
+                                                          offset);
     }
 
-    return AUXADCValueToMicrovolts((hwAttrs->inputScalingEnabled ? AUXADC_FIXED_REF_VOLTAGE_NORMAL : AUXADC_FIXED_REF_VOLTAGE_UNSCALED), adjustedValue);
+    if(hwAttrs->refSource == ADCCC26XX_FIXED_REFERENCE)
+    {
+        return AUXADCValueToMicrovolts(
+                (hwAttrs->inputScalingEnabled ?
+                        AUXADC_FIXED_REF_VOLTAGE_NORMAL :
+                        AUXADC_FIXED_REF_VOLTAGE_UNSCALED),
+                        adjustedValue);
+    }
+    else
+    {
+        return AUXADCValueToMicrovolts(hwAttrs->refVoltage, adjustedValue);
+    }
 }
 
 /*
@@ -307,7 +323,7 @@ void ADCCC26XX_init(ADC_Handle handle){
  */
 ADC_Handle ADCCC26XX_open(ADC_Handle handle, ADC_Params *params){
     ADCCC26XX_Object            *object;
-    ADCCC26XX_HWAttrs     const *hwAttrs;
+    ADCCC26XX_HWAttrs           const *hwAttrs;
     PIN_Config                  adcPinTable[2];
 
     DebugP_assert(handle);
@@ -326,7 +342,7 @@ ADC_Handle ADCCC26XX_open(ADC_Handle handle, ADC_Params *params){
     }
     object->isOpen = true;
 
-    /* remember thread safety protection setting */
+    /* Remember thread safety protection setting */
     object->isProtected = params->isProtected;
 
     /* If this is the first handle requested, set up the semaphore as well */
@@ -336,7 +352,8 @@ ADC_Handle ADCCC26XX_open(ADC_Handle handle, ADC_Params *params){
     }
     adcInstance++;
 
-    /* On Chameleon, ANAIF must be clocked to use it. On Agama, the register inferface is always available. */
+    /* On Chameleon, ANAIF must be clocked to use it. On Agama, the register
+     * interface is always available. */
 #if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X0_CC26X0)
     /* Turn on the ANAIF clock. ANIAF contains the aux ADC. */
     AUXWUCClockEnable(AUX_WUC_ANAIF_CLOCK);

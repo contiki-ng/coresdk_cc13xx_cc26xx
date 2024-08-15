@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -371,12 +371,12 @@ static void startTxFifoEmptyClk(UART_Handle handle, unsigned int numOfDataInFifo
      */
     unsigned int writeTimeoutUs = (numOfDataInFifo*(1+5+(object->dataLength)+(object->stopBits+1))*1000000)/object->baudRate + 100;
     /*   2. Configure clock object to trigger when FIFO is empty
-     *       - +1 in case clock module due to tick in less than one ClockP_tickPeriod
+     *       - +1 in case clock module due to tick in less than one ClockP_getSystemTickPeriod()
      *       - UNIT_DIV_ROUNDUP to avoid fractional part being truncated during division
      */
 
     ClockP_setTimeout((ClockP_Handle) &(object->txFifoEmptyClk),
-                     (1 + UNIT_DIV_ROUNDUP(writeTimeoutUs, ClockP_tickPeriod)));
+                     (1 + UNIT_DIV_ROUNDUP(writeTimeoutUs, ClockP_getSystemTickPeriod())));
     ClockP_start((ClockP_Handle) &(object->txFifoEmptyClk));
 }
 
@@ -405,9 +405,9 @@ static void writeFinishedDoCallback(UART_Handle handle)
     if(UARTBusy(hwAttrs->baseAddr)){
         /* The UART is still busy.
          * Wait 500 us before checking again or 1 tick period if the
-         * ClockP_tickPeriod is larger than 500 us.
+         * ClockP_getSystemTickPeriod() is larger than 500 us.
          */
-        ClockP_setTimeout((ClockP_Handle) &(object->txFifoEmptyClk), MAX((500/ClockP_tickPeriod),1));
+        ClockP_setTimeout((ClockP_Handle) &(object->txFifoEmptyClk), MAX((500/ClockP_getSystemTickPeriod()),1));
         ClockP_start((ClockP_Handle) &(object->txFifoEmptyClk));
         return;
     }
@@ -464,7 +464,8 @@ static void writeTxFifoFlush(UARTCC26XX_Object  *object, UARTCC26XX_HWAttrsV2 co
         SemaphoreP_pend(&(object->writeSem), SemaphoreP_WAIT_FOREVER);
     }
     /* 5. Revert to active pins before returning */
-#if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
+#if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2 || \
+    DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X1_CC26X1)
     PINCC26XX_setMux(object->hPin, hwAttrs->txPin, (hwAttrs->baseAddr == UART0_BASE ? IOC_PORT_MCU_UART0_TX : IOC_PORT_MCU_UART1_TX));
     if(isFlowControlEnabled(hwAttrs)) {
         PINCC26XX_setMux(object->hPin, hwAttrs->ctsPin, (hwAttrs->baseAddr == UART0_BASE ? IOC_PORT_MCU_UART0_CTS : IOC_PORT_MCU_UART1_CTS));
@@ -920,9 +921,6 @@ void UARTCC26XX_close(UART_Handle handle)
     object = handle->object;
     hwAttrs = handle->hwAttrs;
 
-    /* Deallocate pins */
-    PIN_close(object->hPin);
-
     /* Disable all UART module interrupts. */
     UARTIntDisable(hwAttrs->baseAddr, UART_INT_OE | UART_INT_BE | UART_INT_PE |
                                       UART_INT_FE | UART_INT_RT | UART_INT_TX |
@@ -940,6 +938,9 @@ void UARTCC26XX_close(UART_Handle handle)
     /* Disable UART module */
     HWREG(hwAttrs->baseAddr + UART_O_CTL) &= ~(UART_CTL_UARTEN | UART_CTL_TXE |
                                       UART_CTL_RXE);
+
+    /* Deallocate pins */
+    PIN_close(object->hPin);
 
     /* Release power dependency - i.e. potentially power down serial domain. */
     Power_releaseDependency(hwAttrs->powerMngrId);

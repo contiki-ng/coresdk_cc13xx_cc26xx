@@ -42,65 +42,80 @@
  *  @endcode
  *
  * # Overview #
- * This is a CC26X2 specific implementation of the generic TI-RTOS ADCBuf driver.
- * The generic ADCBuf API specified in ti/drivers/ADCBuf.h should be called by the application,
- * not the device specific implementation in ti/drivers/adcbuf/ADCBufCC26X2.
- * The board file defines the device specific configuration and casting in the general
- * API ensures the correct device specific functions are called. You should specify an
- * ADCBufCC26X2_ParamsExtension in the custom field of the ADCBuf_Params that suits
- * your application. The default settings work for many, but not all, usecases.
+ * This is a CC26X2 specific implementation of the generic TI-RTOS ADCBuf
+ * driver. The generic ADCBuf API specified in ti/drivers/ADCBuf.h should be
+ * called by the application, not the device specific implementation in
+ * ti/drivers/adcbuf/ADCBufCC26X2. The board file defines the device specific
+ * configuration and casting in the general API ensures the correct device
+ * specific functions are called. You should specify an
+ * ADCBufCC26X2_ParamsExtension in the custom field of the ADCBuf_Params that
+ * suits your application. The default settings work for many, but not all,
+ * use cases.
  *
  * # General Behavior #
- * A timer and the DMA are used to trigger the ADC and fill a buffer in the background (in hardware) at a specified frequency.
- * The application may execute other tasks while the hardware handles the conversions.
- * In contrast to the standard ti/drivers/ADC driver, this driver allows for precise sampling of waveforms.
+ * A timer and the DMA are used to trigger the ADC and fill a buffer in the
+ * background (in hardware) at a specified frequency. The application may
+ * execute other tasks while the hardware handles the conversions. In contrast
+ * to the standard ti/drivers/ADC driver, this driver allows for precise
+ * sampling of waveforms.
  *
  * | Driver         | Number of samples needed in one call    |
  * |----------------|-----------------------------------------|
  * | ADC.h          | 1                                       |
  * | ADCBuf.h       | > 1                                     |
  *
- * This ADCBuf driver provides an API interface to using the analog-to-digital converter
- * directly from the CM3 without going through the sensor controller.
- * The sensor controller can still use the ADC, support for sharing the ADC resource between the
- * sensor controller and the CM3 is built into the driver. There is a hardware semaphore that the
- * driver must acquire before beginning any number of conversions. This same hardware semaphore also
- * prevents the simultaneous use of this driver and the basic ADC driver.
+ * This ADCBuf driver provides an API interface to using the analog-to-digital
+ * converter directly from the CM3 without going through the sensor controller.
+ * The sensor controller can still use the ADC, support for sharing the ADC
+ * resource between the sensor controller and the CM3 is built into the driver.
+ * There is a hardware semaphore that the driver must acquire before beginning
+ * any number of conversions. This same hardware semaphore also prevents the
+ * simultaneous use of this driver and the basic ADC driver.
  *
- * The ADC drivers supports making between one and 1024 measurements once or continuous
- * measuring with returned buffer sizes between one and 1024 measurements.
+ * The ADC drivers supports making between one and 1024 measurements once or
+ * continuous measuring with returned buffer sizes between one and 1024
+ * measurements.
  *
- * The application should call ADCBuf_init() once by the application to set the isOpened
- * flag to false, indicating that the driver is ready to use.
+ * The application should call ADCBuf_init() once by the application to set the
+ * isOpened flag to false, indicating that the driver is ready to use.
  *
  * The ADC driver is opened by calling ADCBuf_open() which will
  * set up interrupts and configure the internal components of the driver.
- * However, the ADC hardware or analog pins are not yet configured, since the sensor
- * controller or basic ADC driver might be using the ADC.
+ * However, the ADC hardware or analog pins are not yet configured, since the
+ * sensor controller or basic ADC driver might be using the ADC.
  *
  * In order to perform an ADC conversion, the application should call
- * ADCBuf_convert(). This call will request the ADC resource, configure the ADC, set up the DMA and GPTimer,
- * and perform the requested ADC conversions on the selected DIO or internal signal. The DIO or internal signal is defined by the
- * ADCBuf_Conversion structure in the application code and adcBufCC26x2Objects in the board file.
+ * ADCBuf_convert(). This call will request the ADC resource, configure the ADC,
+ * set up the DMA and GPTimer, and perform the requested ADC conversions on the
+ * selected DIO or internal signal. The DIO or internal signal is defined by the
+ * ADCBuf_Conversion structure in the application code and adcBufCC26x2Objects
+ * in the board file.
  *
- * @warning If the ADCBUF driver is setup in ADCBuf_RECURRENCE_MODE_CONTINUOUS mode, the user must assure that the provided callback
- *          function is completed before the next conversion completes. If the next conversion completes before the callback function finishes,
- *          the DMA will clobber the previous buffer with new data.
+ * @warning If the ADCBUF driver is setup in ADCBuf_RECURRENCE_MODE_CONTINUOUS
+ *          mode, the user must assure that the provided callback function is
+ *          completed before the next conversion completes. If the next
+ *          conversion completes before the callback function finishes, the DMA
+ *          will clobber the previous buffer with new data.
  *
- * If the sensor controller is using the ADC when the driver requests it at the start of the ADC_convert() call,
- * the conversion will fail and return false.
- * The ADC resource may be pre-acquired by calling the control function ADCBufCC26X2_CMD_ACQUIRE_ADC_SEMAPHORE.
- * It will be released again automatically after the next conversion completes.
+ * If the sensor controller is using the ADC when the driver requests it at the
+ * start of the ADC_convert() call, the conversion will fail and return false.
+ * The ADC resource may be pre-acquired by calling the control function
+ * ADCBufCC26X2_CMD_ACQUIRE_ADC_SEMAPHORE. It will be released again
+ * automatically after the next conversion completes.
  *
- * In both ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS mode and ADCBufCC26X2_SAMPING_MODE_ASYNCHRONOUS mode, enough sampling
- * time must be provided between conversions that each measurement may be completed before the next trigger arrives.
+ * In both ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS mode and
+ * ADCBufCC26X2_SAMPING_MODE_ASYNCHRONOUS mode, enough sampling time must be
+ * provided between conversions that each measurement may be completed before
+ *  the next trigger arrives.
  *
- * @note    The ADCBuf driver requires GPTimer0A to function correctly. It will be unavailable for other uses.
+ * @note    The ADCBuf driver requires GPTimer0A to function correctly. It will
+ *          be unavailable for other uses.
  *
  * # Supported ADC pins #
- * Below is a table of the supported ADC IO pins for each package size, for both CC26x2 and CC13x2.
- * It maps a DIO to its corresponding driverlib define for the CompBInput that it is hardwired to.
- * This table can be used to create virtual channel entries in the ADCBufCC26X2_adcChannelLut table in the board file.
+ * Below is a table of the supported ADC IO pins for each package size, for both
+ * CC26x2 and CC13x2. It maps a DIO to its corresponding driverlib define for the
+ * CompBInput that it is hardwired to. This table can be used to create virtual
+ * channel entries in the ADCBufCC26X2_adcChannelLut table in the board file.
  *
  * | DIO    | CC26x2 7x7 AUXIO CompBInput   | CC13x2 7x7 AUXIO CompBInput
  * |--------|-------------------------------|-------------------------------
@@ -131,8 +146,10 @@
  *
  * # Supported Internal Signals #
  * Below is a table of internal signals that can be measured using the ADC.
- * Since we are not connecting to a DIO, there is no DIO to internal signal mapping. The DIO field in the channel lookup table should be marked PIN_UNASSIGNED.
- * This table can be used to create virtual channel entries in the ADCBufCC26X2_adcChannelLut table in the board file.
+ * Since we are not connecting to a DIO, there is no DIO to internal signal mapping.
+ * The DIO field in the channel lookup table should be marked PIN_UNASSIGNED.
+ * This table can be used to create virtual channel entries in the
+ * ADCBufCC26X2_adcChannelLut table in the board file.
  *
  * | DIO                | Internal Signal CompBInput    |
  * |--------------------|-------------------------------|
@@ -150,14 +167,14 @@
  *
  *
  * # Power Management #
- * The TI-RTOS power management framework will try to put the device into the most
- * power efficient mode whenever possible. Please see the technical reference
- * manual for further details on each power mode.
+ * The TI-RTOS power management framework will try to put the device into the
+ * most power efficient mode whenever possible. Please see the technical
+ * reference manual for further details on each power mode.
  *
  * While converting, the ADCBufCC26X2 driver sets a power constraint to keep
  * the device out of standby. When the conversion has finished, the power
- * constraint is released. The driver also sets a dependency on the DMA to enable
- * background transfers from the ADC FIFO to memory.
+ * constraint is released. The driver also sets a dependency on the DMA to
+ * enable background transfers from the ADC FIFO to memory.
  * The following statements are valid:
  *      - After ADCBuf_convert(): the device cannot enter standby.
  *      - After ADCBuf_convertCancel(): the device can enter standby again.
@@ -181,12 +198,13 @@
  *
  *  # Not Supported Functionality #
  *     - Performing conversions on multiple channels simultaneously is not supported.
- *       In other words, the parameter channelCount must always be set to 1 when calling ADCBuf_convert().
- *       The ADC on CC26XX devices does not support time-division multiplexing of channels or pins in hardware.
+ *       In other words, the parameter channelCount must always be set to 1 when
+ *       calling ADCBuf_convert(). The ADC on CC26XX devices does not support
+ *       time-division multiplexing of channels or pins in hardware.
  *
  * # Use Cases #
  * ## Basic one-shot conversion #
- *  Perform one conversion on Board_ADCCHANNEL_A1 in ::ADCBuf_RETURN_MODE_BLOCKING.
+ *  Perform one conversion on CONFIG_ADCCHANNEL_A1 in ::ADCBuf_RETURN_MODE_BLOCKING.
  *  @code
  *      #include <ti/drivers/ADCBuf.h>
  *
@@ -198,13 +216,13 @@
  *      uint16_t sampleBufferOne[ADCBUFFERSIZE];
  *
  *      ADCBuf_Params_init(&adcBufParams);
- *      adcBufHandle = ADCBuf_open(Board_ADCBuf0, &adcBufParams);
+ *      adcBufHandle = ADCBuf_open(CONFIG_ADCBuf0, &adcBufParams);
   *      if (adcBufHandle == NULL) {
  *          // handle error
  *      }
  *
  *      blockingConversion.arg = NULL;
- *      blockingConversion.adcChannel = Board_ADCCHANNEL_A1;
+ *      blockingConversion.adcChannel = CONFIG_ADCCHANNEL_A1;
  *      blockingConversion.sampleBuffer = sampleBufferOne;
  *      blockingConversion.sampleBufferTwo = NULL;
  *      blockingConversion.samplesRequestedCount = ADCBUFFERSIZE;
@@ -215,9 +233,10 @@
  *  @endcode
  *
  * ## Using ADCBufCC26X2_ParamsExtension #
- *  This specific configuration performs one conversion on Board_ADCCHANNEL_A1 in ::ADCBuf_RETURN_MODE_BLOCKING.
- *  The custom parameters used here are identical to the defaults parameters.
- *  Users can of course define their own parameters.
+ *  This specific configuration performs one conversion on CONFIG_ADCCHANNEL_A1
+ *  in ::ADCBuf_RETURN_MODE_BLOCKING. The custom parameters used here are
+ *  identical to the defaults parameters. Users can of course define their own
+ *  parameters.
  *  @code
  *      #include <ti/drivers/ADCBuf.h>
  *
@@ -230,6 +249,7 @@
  *      ADCBufCC26X2_ParamsExtension customParams;
  *
  *      ADCBuf_Params_init(&adcBufParams);
+ *      ADCBufCC26X2_ParamsExtension_init(&customParams);
  *      customParams.samplingDuration    = ADCBufCC26X2_SAMPLING_DURATION_2P7_US;
  *      customParams.refSource           = ADCBufCC26X2_FIXED_REFERENCE;
  *      customParams.samplingMode        = ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS;
@@ -237,13 +257,13 @@
  *
  *      adcBufParams.custom = &customParams;
  *
- *      adcBufHandle = ADCBuf_open(Board_ADCBuf0, &adcBufParams);
+ *      adcBufHandle = ADCBuf_open(CONFIG_ADCBuf0, &adcBufParams);
  *      if (adcBufHandle == NULL) {
  *          // handle error
  *      }
  *
  *      blockingConversion.arg = NULL;
- *      blockingConversion.adcChannel = Board_ADCCHANNEL_A1;
+ *      blockingConversion.adcChannel = CONFIG_ADCCHANNEL_A1;
  *      blockingConversion.sampleBuffer = sampleBufferOne;
  *      blockingConversion.sampleBufferTwo = NULL;
  *      blockingConversion.samplesRequestedCount = ADCBUFFERSIZE;
@@ -268,10 +288,6 @@
 #ifndef ti_drivers_adc_adcbufcc26xx__include
 #define ti_drivers_adc_adcbufcc26xx__include
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -291,12 +307,16 @@ extern "C" {
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/dpl/SwiP.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /** @}*/
 
 /**
  *  @addtogroup ADCBuf_CMD
- *  ADCBufCC26X2_CMD_* macros are command codes only defined in the ADCBufCC26X2.h
- *  driver implementation and need to:
+ *  ADCBufCC26X2_CMD_* macros are command codes only defined in the
+ *  ADCBufCC26X2.h driver implementation and need to:
  *  @code
  *  #include <ti/drivers/adc/ADCBufCC26X2.h>
  *  @endcode
@@ -306,37 +326,41 @@ extern "C" {
 /* Add ADCBufCC26X2_CMD_* macros here */
 
 /*!
- *  @brief  This control function acquires the semaphore that arbitrates access to the ADC
- *          between the CM3 and the sensor controller
+ *  @brief  This control function acquires the semaphore that arbitrates access
+ *          to the ADC between the CM3 and the sensor controller
  *
- *  This function pre-acquires the ADC semaphore before ADCBuf_convert() is called by the application.
- *  Normally, the ADC driver acquires the ADC semaphore when calling ADCBufCC26X2_convert().
- *  The driver may need to wait for the sensor controller to release the semaphore in order to
- *  access the ADC hardware module. Consequently, the time at which the conversion is actually
- *  made is normally non-deterministic.
- *  Pre-acquiring the semaphore makes the ADCBuf_convert() call deterministic.
+ *  This function pre-acquires the ADC semaphore before ADCBuf_convert() is
+ *  called by the application. Normally, the ADC driver acquires the ADC
+ *  semaphore when calling ADCBufCC26X2_convert(). The driver may need to wait
+ *  for the sensor controller to release the semaphore in order to access the
+ *  ADC hardware module. Consequently, the time at which the conversion is
+ *  actually made is normally non-deterministic. Pre-acquiring the semaphore
+ *  makes the ADCBuf_convert() call deterministic.
  *
- *  @note This function returns an error if the handle is not open or a transfer is in progress
+ *  @note This function returns an error if the handle is not open or a transfer
+ *  is in progress
  */
 #define ADCBufCC26X2_CMD_ACQUIRE_ADC_SEMAPHORE ADCBuf_CMD_RESERVED + 1
 
 /*!
  *  @brief  This function makes the ADC driver keep the ADC semaphore until released
  *
- *  Calling this function will make the ADC driver keep the ADC semaphore until it is released by
- *  the application by calling the control function ADCBufCC26X2_CMD_RELEASE_ADC_SEMAPHORE.
- *  This enables multiple deterministic conversions to be made.
- *  Usually, the driver will release the semaphore after the conversion finishes.
+ *  Calling this function will make the ADC driver keep the ADC semaphore until
+ *  it is released by the application by calling the control function
+ *  ADCBufCC26X2_CMD_RELEASE_ADC_SEMAPHORE. This enables multiple deterministic
+ *  conversions to be made. Usually, the driver will release the semaphore after
+ *  the conversion finishes.
  *
- *  @warning    The sensor controller can no longer access the ADC until the semaphore is released by
- *              the application manually.
+ *  @warning    The sensor controller can no longer access the ADC until the
+ *              semaphore is released by the application manually.
  *
  *  @sa ADCBufCC26X2_CMD_KEEP_ADC_SEMAPHORE_DISABLE
  */
 #define ADCBufCC26X2_CMD_KEEP_ADC_SEMAPHORE ADCBuf_CMD_RESERVED + 2
 
 /*!
- *  @brief  This function makes the ADC driver no longer keep the ADC semaphore until released
+ *  @brief  This function makes the ADC driver no longer keep the ADC semaphore
+ *          until released
  *
  *  This function effectively reverses a call to ADCBufCC26X2_CMD_KEEP_ADC_SEMAPHORE_DISABLE.
  *
@@ -347,7 +371,8 @@ extern "C" {
 /*!
  *  @brief  This function releases the ADC semaphore
  *
- *  @note   This function returns an error if the handle is not open or a transfer is in progress
+ *  @note   This function returns an error if the handle is not open or a
+ *          transfer is in progress
  */
 #define ADCBufCC26X2_CMD_RELEASE_ADC_SEMAPHORE ADCBuf_CMD_RESERVED + 4
 
@@ -377,16 +402,21 @@ extern const ADCBuf_FxnTable ADCBufCC26X2_fxnTable;
  */
 
 /*!
- *  @brief  Specifies whether the internal reference of the ADC is sourced from the battery voltage or a fixed internal source.
+ *  @brief  Specifies whether the internal reference of the ADC is sourced from
+ *          the battery voltage or a fixed internal source.
  *
- *  The CC26X2 ADC can operate in two different ways with regards to the sampling phase of the ADC conversion process:
- *      - It can spend a fixed amount of time sampling the signal after getting the start conversion trigger.
- *      - It can constantly keep sampling and immediately start the conversion process after getting the trigger.
+ *  The CC26X2 ADC can operate in two different ways with regards to the
+ *  sampling phase of the ADC conversion process:
+ *      - It can spend a fixed amount of time sampling the signal after getting
+ *        the start conversion trigger.
+ *      - It can constantly keep sampling and immediately start the conversion
+ *        process after getting the trigger.
  *
- *  In ADCBufCC26X2_SYNCHRONOUS mode, the ADC goes into IDLE in between conversions and uses less power.
- *  The minimum sample time for full precision in ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS is dependent on the input load.
+ *  In ADCBufCC26X2_SYNCHRONOUS mode, the ADC goes into IDLE in between
+ *  conversions and uses less power. The minimum sample time for full precision
+ *  in ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS is dependent on the input load.
  */
-typedef enum ADCBufCC26X2_Sampling_Mode {
+typedef enum {
     ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS,
     ADCBufCC26X2_SAMPING_MODE_ASYNCHRONOUS
 } ADCBufCC26X2_Sampling_Mode;
@@ -394,12 +424,14 @@ typedef enum ADCBufCC26X2_Sampling_Mode {
 /*!
  *  @brief  Amount of time the ADC spends sampling the analogue input.
  *
- *  The analogue to digital conversion process consists of two phases in the CC26X2 ADC,
- *  the sampling and conversion phases. During the sampling phase, the ADC samples the
- *  analogue input signal. Larger input loads require longer sample times for the most accurate
- *  results. In ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS mode, this enum specifies the sampling times available.
+ *  The analogue to digital conversion process consists of two phases in the
+ *  CC26X2 ADC, the sampling and conversion phases. During the sampling phase,
+ *  the ADC samples the analogue input signal. Larger input loads require longer
+ *  sample times for the most accurate results.
+ *  In ADCBufCC26X2_SAMPING_MODE_SYNCHRONOUS mode, this enum specifies the
+ *  sampling times available.
  */
-typedef enum ADCBufCC26X2_Sampling_Duration {
+typedef enum {
     ADCBufCC26X2_SAMPLING_DURATION_2P7_US    = AUXADC_SAMPLE_TIME_2P7_US,
     ADCBufCC26X2_SAMPLING_DURATION_5P3_US    = AUXADC_SAMPLE_TIME_5P3_US,
     ADCBufCC26X2_SAMPLING_DURATION_10P6_US   = AUXADC_SAMPLE_TIME_10P6_US,
@@ -417,26 +449,38 @@ typedef enum ADCBufCC26X2_Sampling_Duration {
 
 
 /*!
- *  @brief  Specifies whether the internal reference of the ADC is sourced from the battery voltage or a fixed internal source.
+ *  @brief  Specifies whether the internal reference of the ADC is sourced from
+ *          the battery voltage or a fixed internal source.
  *
- *  - In practice, using the internal fixed voltage reference sets the upper range of the ADC to a fixed value. That value is 4.3V with
- *  input scaling enabled and ~1.4785V with input scaling disabled. In this mode, the output is a function of the input voltage multiplied
- *  by the resolution in alternatives (not bits) divided by the upper voltage range of the ADC. Output = Input (V) * 2^12 / (ADC range (V))
+ *  - In practice, using the internal fixed voltage reference sets the upper
+ *    range of the ADC to a fixed value. That value is 4.3V with input scaling
+ *    enabled and ~1.4785V with input scaling disabled. In this mode, the output
+ *    is a function of the input voltage multiplied by the resolution in
+ *    alternatives (not bits) divided by the upper voltage range of the ADC.
+ *    Output = Input (V) * 2^12 / (ADC range (V))
  *
- *  - Using VDDS as a reference scales the upper range of the ADC with the battery voltage. As the battery depletes and its voltage drops, so does
- *  the range of the ADC. This is helpful when measuring signals that are generated relative to the battery voltage. In this mode, the output is
- *  a function of the input voltage multiplied by the resolution in alternatives (not bits) divided by VDDS multiplied by a scaling factor derived
- *  from the input scaling. Output = Input (V) * 2^12 / (VDDS (V) * Scaling factor), where the scaling factor is ~1.4785/4.3 for input scaling
- *  disabled and 1 for input scaling enabled.
+ *  - Using VDDS as a reference scales the upper range of the ADC with the
+ *    battery voltage. As the battery depletes and its voltage drops, so does
+ *    the range of the ADC. This is helpful when measuring signals that are
+ *    generated relative to the battery voltage. In this mode, the output is a
+ *    function of the input voltage multiplied by the resolution in alternatives
+ *    (not bits) divided by VDDS multiplied by a scaling factor derived from the
+ *    input scaling. Output = Input (V) * 2^12 / (VDDS (V) * Scaling factor),
+ *    where the scaling factor is ~1.4785/4.3 for input scaling disabled and 1
+ *    for input scaling enabled.
  *
- *  @note   The actual reference values are slightly different for each device and are higher than the values specified above. This gain is saved in
- *          the FCFG. The function ADCBuf_convertRawToMicroVolts() must be used to derive actual voltage values. Do not attempt to compare raw values
- *          between devices or derive a voltage from them yourself. The results of doing so will only be approximately correct.
+ *  @note   The actual reference values are slightly different for each device
+ *          and are higher than the values specified above. This gain is saved
+ *          in the FCFG. The function ADCBuf_convertRawToMicroVolts() must be
+ *          used to derive actual voltage values. Do not attempt to compare raw
+ *          values between devices or derive a voltage from them yourself. The
+ *          results of doing so will only be approximately correct.
  *
- *  @warning    Even though the upper voltage range of the ADC is 4.3 volts in fixed mode with input scaling enabled, the input should never exceed
- *              VDDS as per the data sheet.
+ *  @warning    Even though the upper voltage range of the ADC is 4.3 volts in
+ *              fixed mode with input scaling enabled, the input should never
+ *              exceed VDDS as per the data sheet.
  */
-typedef enum ADCBufCC26X2_Reference_Source {
+typedef enum {
     ADCBufCC26X2_FIXED_REFERENCE       = AUXADC_REF_FIXED,
     ADCBufCC26X2_VDDS_REFERENCE        = AUXADC_REF_VDDS_REL
 } ADCBufCC26X2_Reference_Source;
@@ -450,29 +494,34 @@ typedef enum ADCBufCC26X2_Reference_Source {
  */
 
  /*!
- *  @brief  Table entry that maps a virtual adc channel to a dio and its corresponding internal analogue signal
+ *  @brief  Table entry that maps a virtual adc channel to a dio and its
+ *          corresponding internal analogue signal
  *
- *  Non-dio signals can be used as well. To do this, compBInput is set to the driverlib define corresponding to the
- *  desired non-dio signal and dio is set to PIN_UNASSIGNED.
+ *  Non-dio signals can be used as well. To do this, compBInput is set to the
+ *  driverlib define corresponding to the desired non-dio signal and dio is set
+ *  to PIN_UNASSIGNED.
  */
-typedef struct ADCBufCC26X2_AdcChannelLutEntry{
+typedef struct{
     uint8_t dio;            /*!< DIO that this virtual channel is mapped to */
     uint8_t compBInput;     /*!< CompBInput that this virtual channel is mapped to */
 } ADCBufCC26X2_AdcChannelLutEntry;
 
 /*!
- *  @brief      CC26X2 specfic extension to ADCBuf_Params
+ *  @brief      CC26X2 specific extension to ADCBuf_Params
  *
- *  To use non-default CC26X2 specific parameters when calling ADCBuf_open(), a pointer
- *  to an instance of this struct must be specified in ADCBuf_Params::custom. Alternatively,
- *  these values can be set using the control function after calling ADCBuf_open().
+ *  To use non-default CC26X2 specific parameters when calling ADCBuf_open(), a
+ *  pointer to an instance of this struct must be specified in
+ *  ADCBuf_Params::custom. Alternatively, these values can be set using the
+ *  control function after calling ADCBuf_open().
  */
-typedef struct ADCBufCC26X2_ParamsExtension{
+typedef struct{
     /*! Amount of time the ADC spends sampling the analogue input */
     ADCBufCC26X2_Sampling_Duration     samplingDuration;
-    /*! Specifies whether the ADC spends a fixed amount of time sampling or the entire time since the last conversion */
+    /*! Specifies whether the ADC spends a fixed amount of time sampling or the
+     *  entire time since the last conversion */
     ADCBufCC26X2_Sampling_Mode         samplingMode;
-    /*! Specifies whether the internal reference of the ADC is sourced from the battery voltage or a fixed internal source */
+    /*! Specifies whether the internal reference of the ADC is sourced from the
+     *  battery voltage or a fixed internal source */
     ADCBufCC26X2_Reference_Source      refSource;
     /*!
      *  Disable input scaling. Input scaling scales an external analogue
@@ -510,11 +559,12 @@ typedef struct ADCBufCC26X2_ParamsExtension{
  *  };
  *  @endcode
  */
-typedef struct ADCBufCC26X2_HWAttrs{
+typedef struct{
     /*! @brief ADC SWI priority.
         The higher the number, the higher the priority.
         The minimum is 0 and the maximum is 15 by default.
-        The maximum can be reduced to save RAM by adding or modifying Swi.numPriorities in the kernel configuration file.
+        The maximum can be reduced to save RAM by adding or modifying
+        Swi.numPriorities in the kernel configuration file.
     */
     uint32_t            swiPriority;
     /*! @brief ADC peripheral's interrupt priority.
@@ -528,13 +578,18 @@ typedef struct ADCBufCC26X2_HWAttrs{
 
         Setting the priority to 0 is not supported by this driver.
 
-        HWI's with priority 0 ignore the HWI dispatcher to support zero-latency interrupts, thus invalidating the critical sections in this driver.
+        HWI's with priority 0 ignore the HWI dispatcher to support zero-latency
+        interrupts, thus invalidating the critical sections in this driver.
     */
     uint8_t             intPriority;
-    /*! Pointer to a table of ADCBufCC26X2_AdcChannelLutEntry's mapping internal CompBInput to DIO */
+    /*! Pointer to a table of ADCBufCC26X2_AdcChannelLutEntry's mapping internal
+     *  CompBInput to DIO */
     ADCBufCC26X2_AdcChannelLutEntry  const *adcChannelLut;
-    /*! GPTimer unit index (0A, 0B, 1A..). Currently only the 0A unit index is supported. */
+    /*! GPTimer unit index (0A, 0B, 1A..). Currently only the 0A unit index is
+     *  supported. */
     uint8_t             gpTimerUnit;
+    /*! Specifies whether the ADC semaphore should be acquired during open() */
+    bool                acquireADCSem;
 } ADCBufCC26X2_HWAttrs;
 
 
@@ -544,7 +599,7 @@ typedef struct ADCBufCC26X2_HWAttrs{
  *
  *  The application must not access any member variables of this structure!
  */
-typedef struct ADCBufCC26X2_Object{
+typedef struct{
     /* ADC control variables */
     bool                            isOpen;                     /*!< Has the obj been opened */
     bool                            conversionInProgress;       /*!< Is the ADC currently doing conversions */

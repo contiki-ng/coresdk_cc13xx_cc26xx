@@ -41,7 +41,12 @@
 #include <string.h>
 
 #include <ti/drivers/AESCTRDRBG.h>
+#include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+
+/* Extern globals */
+extern const AESCTRDRBG_Config AESCTRDRBG_config[];
+extern const uint_least8_t AESCTRDRBG_count;
 
 const AESCTRDRBG_Params AESCTRDRBG_defaultParams = {
     .keyLength = AESCTRDRBG_AES_KEY_LENGTH_128,
@@ -52,6 +57,16 @@ const AESCTRDRBG_Params AESCTRDRBG_defaultParams = {
     .returnBehavior = AESCTRDRBG_RETURN_BEHAVIOR_POLLING,
     .custom = NULL,
 };
+
+/*
+ *  ======== AESCTRDRBG_open ========
+ */
+AESCTRDRBG_Handle AESCTRDRBG_open(uint_least8_t index, const AESCTRDRBG_Params *params) {
+    DebugP_assert(index < AESCTRDRBG_count);
+
+    AESCTRDRBG_Config *config = (AESCTRDRBG_Config*)&AESCTRDRBG_config[index];
+    return AESCTRDRBG_construct(config, params);
+}
 
 /*
  *  ======== AESCTRDRBG_Params_init ========

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -38,13 +38,16 @@
 #include <ti/drivers/dpl/HwiP.h>
 #include <ti/drivers/dpl/SwiP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
-#include <ti/drivers/dpl/DebugP.h>
 
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26X2.h>
 #include <ti/drivers/ECDSA.h>
 #include <ti/drivers/ecdsa/ECDSACC26X2.h>
+#include <ti/drivers/TRNG.h>
+#include <ti/drivers/trng/TRNGCC26XX.h>
 #include <ti/drivers/cryptoutils/sharedresources/PKAResourceCC26XX.h>
+#include <ti/drivers/cryptoutils/cryptokey/CryptoKeyPlaintext.h>
+#include <ti/drivers/cryptoutils/utils/CryptoUtils.h>
 
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(inc/hw_memmap.h)
@@ -57,17 +60,28 @@
 #include DeviceFamily_constructPath(driverlib/interrupt.h)
 #include DeviceFamily_constructPath(driverlib/sys_ctrl.h)
 
-#define ECDSACC26X2_SCRATCH_BUFFER_SIZE 256
+/* Octet string format requires an extra byte at the start of the public key */
+#define OCTET_STRING_OFFSET 1
 
-/* Since we only support <= 384-bit curves, we can allocate two temporary buffers
- * at the midway address in PKA_RAM. This leaves us with 1024 bytes of RAM
- * to work with. That should be sufficient for our needs. Multiplications will
- * take up to 3x the curve param length of 384 bits or 48 bytes. ECC addition
- * requires 8x the curve param length in RAM. 1024 bytes would even suffice
- * for 384-bit curves.
- */
-#define ECDSACC26X2_SCRATCH_BUFFER ((uint8_t *)(PKA_RAM_BASE + PKA_RAM_TOT_BYTE_SIZE / 2))
-#define ECDSACC26X2_SCRATCH_BUFFER_2 ((uint8_t *)(PKA_RAM_BASE + PKA_RAM_TOT_BYTE_SIZE / 2 + ECDSACC26X2_SCRATCH_BUFFER_SIZE))
+#define SCRATCH_KEY_OFFSET 512
+#define SCRATCH_KEY_SIZE 96
+#define SCRATCH_PRIVATE_KEY ((uint8_t *)(PKA_RAM_BASE               \
+                                         + SCRATCH_KEY_OFFSET))
+#define SCRATCH_PUBLIC_X ((uint8_t *)(PKA_RAM_BASE                  \
+                                      + SCRATCH_KEY_OFFSET          \
+                                      + 1 * SCRATCH_KEY_SIZE))
+#define SCRATCH_PUBLIC_Y ((uint8_t *)(PKA_RAM_BASE                  \
+                                      + SCRATCH_KEY_OFFSET          \
+                                      + 2 * SCRATCH_KEY_SIZE))
+
+#define SCRATCH_BUFFER_OFFSET 1024
+#define SCRATCH_BUFFER_SIZE 256
+#define SCRATCH_BUFFER_0 ((uint8_t *)(PKA_RAM_BASE                  \
+                                      + SCRATCH_BUFFER_OFFSET       \
+                                      + 0 * SCRATCH_BUFFER_SIZE))
+#define SCRATCH_BUFFER_1 ((uint8_t *)(PKA_RAM_BASE                  \
+                                      + SCRATCH_BUFFER_OFFSET       \
+                                      + 1 * SCRATCH_BUFFER_SIZE))
 
 /* Forward declarations */
 static void ECDSACC26X2_hwiFxn (uintptr_t arg0);
@@ -82,16 +96,14 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle);
 static int_fast16_t ECDSACC26X2_convertReturnValue(uint32_t pkaResult);
 
 /* Extern globals */
-extern const ECDSA_Config ECDSA_config[];
-extern const uint_least8_t ECDSA_count;
 extern const ECDSA_Params ECDSA_defaultParams;
 
 /* Static globals */
 static bool isInitialized = false;
 static uint32_t resultAddress;
 
-static uint32_t scratchBufferSize = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
-static uint32_t scratchBuffer2Size = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+static uint32_t scratchBuffer0Size = SCRATCH_BUFFER_SIZE;
+static uint32_t scratchBuffer1Size = SCRATCH_BUFFER_SIZE;
 
 
 /*
@@ -193,6 +205,73 @@ static void ECDSACC26X2_hwiFxn (uintptr_t arg0) {
 }
 
 /*
+ *  ======== ECDSACC26X2_trngCallback ========
+ */
+void ECDSACC26X2_trngCallback(TRNG_Handle handle,
+                              int_fast16_t returnValue,
+                              CryptoKey *pmsn) {
+    ECDSACC26X2_Object *object = ((ECDSACC26X2_Object *)(handle));
+    uint32_t pkaResult = 0;
+    int_fast16_t trngStatus;
+    uint32_t tmp = 0;
+    uint8_t i;
+
+    /* Check that PMSN is not zero. If tmp is zero, we need to generate a
+     * new PMSN.
+     */
+    for (i = 0; i < pmsn->u.plaintext.keyLength / sizeof(uint32_t); i++) {
+        tmp |= ((uint32_t *)(pmsn->u.plaintext.keyMaterial))[i];
+    }
+
+    /* Check that PMSN < curve order */
+    PKABigNumCmpStart(pmsn->u.plaintext.keyMaterial,
+                      object->operation.sign->curve->order,
+                      pmsn->u.plaintext.keyLength);
+
+    while(PKAGetOpsStatus() == PKA_STATUS_OPERATION_BUSY);
+
+    pkaResult = PKABigNumCmpGetResult();
+
+    //TODO: fix error handling since the FSM overwrites the error status
+
+    if (pkaResult != PKA_STATUS_A_LESS_THAN_B) {
+        /* If the randomly generated PMSN is too large, generate another
+         * one.
+         */
+        trngStatus = TRNG_generateEntropy(handle, &object->pmsnKey);
+
+        /* If the generateEntropy call somehow fails, we need to abort
+         * and let the ECDSA driver clean up. Trigger the FSM and let that
+         * code path take care of it.
+         */
+        if (trngStatus != TRNG_STATUS_SUCCESS) {
+            object->operationStatus = ECDSA_STATUS_ERROR;
+
+            TRNG_close(object->trngHandle);
+
+            /* Post hwi as if operation finished for cleanup */
+            IntEnable(INT_PKA_IRQ);
+        }
+    }
+    else if (tmp == 0 || returnValue != TRNG_STATUS_SUCCESS) {
+        object->operationStatus = ECDSA_STATUS_ERROR;
+
+        TRNG_close(object->trngHandle);
+
+        /* Post hwi as if operation finished for cleanup */
+        IntEnable(INT_PKA_IRQ);
+    }
+    else {
+
+        TRNG_close(object->trngHandle);
+        /* Run the FSM by triggering the PKA interrupt. It is level triggered
+         * and the complement of the RUN bit.
+         */
+        IntEnable(INT_PKA_IRQ);
+    }
+}
+
+/*
  *  ======== ECDSACC26X2_runSignFSM ========
  */
 static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
@@ -200,30 +279,9 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
     uint32_t pkaResult;
 
     switch (object->fsmState) {
-        case ECDSACC26X2_FSM_SIGN_VALIDATE_PMSN:
-            if (PKAArrayAllZeros(object->operation.sign->pmsn->u.plaintext.keyMaterial,
-                                 object->operation.sign->curve->length)) {
-                return ECDSA_STATUS_INVALID_PMSN;
-            }
-
-            PKABigNumCmpStart(object->operation.sign->pmsn->u.plaintext.keyMaterial,
-                              object->operation.sign->curve->order,
-                              object->operation.sign->curve->length);
-
-            while(PKAGetOpsStatus() == PKA_STATUS_OPERATION_BUSY);
-
-            pkaResult = PKABigNumCmpGetResult();
-
-            if (pkaResult != PKA_STATUS_A_LESS_THAN_B) {
-                return ECDSA_STATUS_INVALID_PMSN;
-            }
-            else {
-                return ECDSACC26X2_STATUS_FSM_RUN_FSM;
-            }
-
         case ECDSACC26X2_FSM_SIGN_COMPUTE_R:
 
-            PKAEccMultiplyStart(object->operation.sign->pmsn->u.plaintext.keyMaterial,
+            PKAEccMultiplyStart(object->pmsnKey.u.plaintext.keyMaterial,
                                 object->operation.sign->curve->generatorX,
                                 object->operation.sign->curve->generatorY,
                                 object->operation.sign->curve->prime,
@@ -259,12 +317,11 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
                                               object->operation.sign->curve->length,
                                               resultAddress);
 
-
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
         case ECDSACC26X2_FSM_SIGN_COMPUTE_PMSN_INVERSE:
 
-            PKABigNumInvModStart(object->operation.sign->pmsn->u.plaintext.keyMaterial,
+            PKABigNumInvModStart(object->pmsnKey.u.plaintext.keyMaterial,
                                  object->operation.sign->curve->length,
                                  object->operation.sign->curve->order,
                                  object->operation.sign->curve->length,
@@ -282,7 +339,11 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_SIGN_COMPUTE_PRIVATE_KEY_X_R:
 
-            PKABigNumMultiplyStart(object->operation.sign->myPrivateKey->u.plaintext.keyMaterial,
+            CryptoUtils_reverseCopyPad(object->operation.sign->myPrivateKey->u.plaintext.keyMaterial,
+                                       SCRATCH_PRIVATE_KEY,
+                                       object->operation.sign->curve->length);
+
+            PKABigNumMultiplyStart(SCRATCH_PRIVATE_KEY,
                                    object->operation.sign->curve->length,
                                    object->operation.sign->r,
                                    object->operation.sign->curve->length,
@@ -292,19 +353,24 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_SIGN_COMPUTE_PRIVATE_KEY_X_R_RESULT:
 
-            scratchBufferSize = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+            scratchBuffer0Size = SCRATCH_BUFFER_SIZE;
 
-            pkaResult = PKABigNumMultGetResult(ECDSACC26X2_SCRATCH_BUFFER,
-                                               &scratchBufferSize,
+            pkaResult = PKABigNumMultGetResult(SCRATCH_BUFFER_0,
+                                               &scratchBuffer0Size,
                                                resultAddress);
 
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
         case ECDSACC26X2_FSM_SIGN_ADD_HASH:
 
-            PKABigNumAddStart(ECDSACC26X2_SCRATCH_BUFFER,
-                              scratchBufferSize,
-                              object->operation.sign->hash,
+            /* Convert hash from OS format to little-endian integer */
+            CryptoUtils_reverseCopyPad(object->operation.verify->hash,
+                                       SCRATCH_BUFFER_1,
+                                       object->operation.verify->curve->length);
+
+            PKABigNumAddStart(SCRATCH_BUFFER_0,
+                              scratchBuffer0Size,
+                              SCRATCH_BUFFER_1,
                               object->operation.sign->curve->length,
                               &resultAddress);
 
@@ -312,18 +378,18 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_SIGN_ADD_HASH_RESULT:
 
-            scratchBufferSize = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+            scratchBuffer0Size = SCRATCH_BUFFER_SIZE;
 
-            pkaResult = PKABigNumAddGetResult(ECDSACC26X2_SCRATCH_BUFFER,
-                                              &scratchBufferSize,
+            pkaResult = PKABigNumAddGetResult(SCRATCH_BUFFER_0,
+                                              &scratchBuffer0Size,
                                               resultAddress);
 
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
         case ECDSACC26X2_FSM_SIGN_MULT_BY_PMSN_INVERSE:
 
-            PKABigNumMultiplyStart(ECDSACC26X2_SCRATCH_BUFFER,
-                                   scratchBufferSize,
+            PKABigNumMultiplyStart(SCRATCH_BUFFER_0,
+                                   scratchBuffer0Size,
                                    object->operation.sign->s,
                                    object->operation.sign->curve->length,
                                    &resultAddress);
@@ -333,18 +399,18 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_SIGN_MULT_BY_PMSN_INVERSE_RESULT:
 
-            scratchBufferSize = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+            scratchBuffer0Size = SCRATCH_BUFFER_SIZE;
 
-            pkaResult = PKABigNumMultGetResult(ECDSACC26X2_SCRATCH_BUFFER,
-                                               &scratchBufferSize,
+            pkaResult = PKABigNumMultGetResult(SCRATCH_BUFFER_0,
+                                               &scratchBuffer0Size,
                                                resultAddress);
 
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
         case ECDSACC26X2_FSM_SIGN_MOD_N:
 
-            PKABigNumModStart(ECDSACC26X2_SCRATCH_BUFFER,
-                              scratchBufferSize,
+            PKABigNumModStart(SCRATCH_BUFFER_0,
+                              scratchBuffer0Size,
                               object->operation.sign->curve->order,
                               object->operation.sign->curve->length,
                               &resultAddress);
@@ -356,6 +422,15 @@ static int_fast16_t ECDSACC26X2_runSignFSM(ECDSA_Handle handle) {
             pkaResult = PKABigNumModGetResult(object->operation.sign->s,
                                               object->operation.sign->curve->length,
                                               resultAddress);
+
+            /* Convert r from little-endian integer to OS format*/
+            CryptoUtils_reverseBufferBytewise(object->operation.sign->r,
+                                              object->operation.sign->curve->length);
+
+            /* Convert s from little-endian integer to OS format*/
+            CryptoUtils_reverseBufferBytewise(object->operation.sign->s,
+                                              object->operation.sign->curve->length);
+
 
             if (pkaResult == PKA_STATUS_SUCCESS) {
                 return ECDSA_STATUS_SUCCESS;
@@ -385,7 +460,12 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
     switch (object->fsmState) {
         case ECDSACC26X2_FSM_VERIFY_R_S_IN_RANGE:
 
-            PKABigNumCmpStart(object->operation.verify->r,
+            /* Convert r from OS format to little-endian integer */
+            CryptoUtils_reverseCopyPad(object->operation.verify->r,
+                                       SCRATCH_BUFFER_0,
+                                       object->operation.verify->curve->length);
+
+            PKABigNumCmpStart(SCRATCH_BUFFER_0,
                               object->operation.verify->curve->order,
                               object->operation.verify->curve->length);
 
@@ -397,7 +477,12 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
                 return ECDSA_STATUS_R_LARGER_THAN_ORDER;
             }
 
-            PKABigNumCmpStart(object->operation.verify->s,
+            /* Convert s from OS format to little-endian integer */
+            CryptoUtils_reverseCopyPad(object->operation.verify->s,
+                                       SCRATCH_BUFFER_0,
+                                       object->operation.verify->curve->length);
+
+            PKABigNumCmpStart(SCRATCH_BUFFER_0,
                               object->operation.verify->curve->order,
                               object->operation.verify->curve->length);
 
@@ -414,9 +499,19 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_VALIDATE_PUBLIC_KEY:
 
-            pkaResult = PKAEccVerifyPublicKeyWeierstrassStart(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial,
-                                                              object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
-                                                                + object->operation.verify->curve->length,
+            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+                                        + OCTET_STRING_OFFSET,
+                                       SCRATCH_PUBLIC_X,
+                                       object->operation.verify->curve->length);
+
+            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+                                        + OCTET_STRING_OFFSET
+                                        + object->operation.verify->curve->length,
+                                       SCRATCH_PUBLIC_Y,
+                                       object->operation.verify->curve->length);
+
+            pkaResult = PKAEccVerifyPublicKeyWeierstrassStart(SCRATCH_PUBLIC_X,
+                                                              SCRATCH_PUBLIC_Y,
                                                               object->operation.verify->curve->prime,
                                                               object->operation.verify->curve->a,
                                                               object->operation.verify->curve->b,
@@ -428,7 +523,12 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_COMPUTE_S_INV:
 
-            PKABigNumInvModStart(object->operation.verify->s,
+            /* Convert s from OS format to little-endian integer */
+            CryptoUtils_reverseCopyPad(object->operation.verify->s,
+                                       SCRATCH_BUFFER_0,
+                                       object->operation.verify->curve->length);
+
+            PKABigNumInvModStart(SCRATCH_BUFFER_0,
                                  object->operation.verify->curve->length,
                                  object->operation.verify->curve->order,
                                  object->operation.verify->curve->length,
@@ -438,7 +538,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_COMPUTE_S_INV_RESULT:
 
-            pkaResult = PKABigNumInvModGetResult(ECDSACC26X2_SCRATCH_BUFFER_2,
+            pkaResult = PKABigNumInvModGetResult(SCRATCH_BUFFER_1,
                                                  object->operation.verify->curve->length,
                                                  resultAddress);
 
@@ -446,9 +546,14 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_HASH:
 
-            PKABigNumMultiplyStart(ECDSACC26X2_SCRATCH_BUFFER_2,
+            /* Convert hash from OS format to little-endian integer */
+            CryptoUtils_reverseCopyPad(object->operation.verify->hash,
+                                       SCRATCH_BUFFER_0,
+                                       object->operation.verify->curve->length);
+
+            PKABigNumMultiplyStart(SCRATCH_BUFFER_1,
                                    object->operation.verify->curve->length,
-                                   object->operation.verify->hash,
+                                   SCRATCH_BUFFER_0,
                                    object->operation.verify->curve->length,
                                    &resultAddress);
 
@@ -456,18 +561,18 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_HASH_RESULT:
 
-            scratchBufferSize = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+            scratchBuffer0Size = SCRATCH_BUFFER_SIZE;
 
-            pkaResult = PKABigNumMultGetResult(ECDSACC26X2_SCRATCH_BUFFER,
-                                               &scratchBufferSize,
+            pkaResult = PKABigNumMultGetResult(SCRATCH_BUFFER_0,
+                                               &scratchBuffer0Size,
                                                resultAddress);
 
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
         case ECDSACC26X2_FSM_VERIFY_S_INV_MULT_HASH_MOD_N:
 
-            PKABigNumModStart(ECDSACC26X2_SCRATCH_BUFFER,
-                              scratchBufferSize,
+            PKABigNumModStart(SCRATCH_BUFFER_0,
+                              scratchBuffer0Size,
                               object->operation.verify->curve->order,
                               object->operation.verify->curve->length,
                               &resultAddress);
@@ -476,18 +581,18 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_S_INV_MULT_HASH_MOD_N_RESULT:
             // Check previous result
-            pkaResult = PKABigNumModGetResult(ECDSACC26X2_SCRATCH_BUFFER,
+            pkaResult = PKABigNumModGetResult(SCRATCH_BUFFER_0,
                                               object->operation.verify->curve->length,
                                               resultAddress);
 
-            scratchBufferSize = object->operation.verify->curve->length;
+            scratchBuffer0Size = object->operation.verify->curve->length;
 
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
 
         case ECDSACC26X2_FSM_VERIFY_MULT_G:
 
-            PKAEccMultiplyStart(ECDSACC26X2_SCRATCH_BUFFER,
+            PKAEccMultiplyStart(SCRATCH_BUFFER_0,
                                 object->operation.verify->curve->generatorX,
                                 object->operation.verify->curve->generatorY,
                                 object->operation.verify->curve->prime,
@@ -500,8 +605,8 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_G_RESULT:
 
-            pkaResult = PKAEccMultiplyGetResult(ECDSACC26X2_SCRATCH_BUFFER,
-                                                ECDSACC26X2_SCRATCH_BUFFER + object->operation.verify->curve->length,
+            pkaResult = PKAEccMultiplyGetResult(SCRATCH_BUFFER_0,
+                                                SCRATCH_BUFFER_0 + object->operation.verify->curve->length,
                                                 resultAddress,
                                                 object->operation.verify->curve->length);
 
@@ -509,9 +614,14 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_R:
 
-            PKABigNumMultiplyStart(ECDSACC26X2_SCRATCH_BUFFER_2,
+            /* Convert r from OS format to little-endian integer */
+            CryptoUtils_reverseCopyPad(object->operation.verify->r,
+                                       SCRATCH_PRIVATE_KEY,
+                                       object->operation.verify->curve->length);
+
+            PKABigNumMultiplyStart(SCRATCH_BUFFER_1,
                                    object->operation.verify->curve->length,
-                                   object->operation.verify->r,
+                                   SCRATCH_PRIVATE_KEY,
                                    object->operation.verify->curve->length,
                                    &resultAddress);
 
@@ -519,18 +629,18 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_R_RESULT:
 
-            scratchBuffer2Size = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+            scratchBuffer1Size = SCRATCH_BUFFER_SIZE;
 
-            pkaResult = PKABigNumMultGetResult(ECDSACC26X2_SCRATCH_BUFFER_2,
-                                               &scratchBuffer2Size,
+            pkaResult = PKABigNumMultGetResult(SCRATCH_BUFFER_1,
+                                               &scratchBuffer1Size,
                                                resultAddress);
 
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_R_MOD_N:
 
-            PKABigNumModStart(ECDSACC26X2_SCRATCH_BUFFER_2,
-                              scratchBuffer2Size,
+            PKABigNumModStart(SCRATCH_BUFFER_1,
+                              scratchBuffer1Size,
                               object->operation.verify->curve->order,
                               object->operation.verify->curve->length,
                               &resultAddress);
@@ -539,19 +649,30 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_S_INV_R_MOD_N_RESULT:
 
-            pkaResult = PKABigNumModGetResult(ECDSACC26X2_SCRATCH_BUFFER_2,
+            pkaResult = PKABigNumModGetResult(SCRATCH_BUFFER_1,
                                               object->operation.verify->curve->length,
                                               resultAddress);
 
-            scratchBuffer2Size = object->operation.verify->curve->length;
+            scratchBuffer1Size = object->operation.verify->curve->length;
 
             return ECDSACC26X2_convertReturnValue(pkaResult);
 
         case ECDSACC26X2_FSM_VERIFY_MULT_PUB_KEY:
 
-            PKAEccMultiplyStart(ECDSACC26X2_SCRATCH_BUFFER_2,
-                                object->operation.verify->theirPublicKey->u.plaintext.keyMaterial,
-                                object->operation.verify->theirPublicKey->u.plaintext.keyMaterial + object->operation.verify->curve->length,
+            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+                                        + OCTET_STRING_OFFSET,
+                                       SCRATCH_PUBLIC_X,
+                                       object->operation.verify->curve->length);
+
+            CryptoUtils_reverseCopyPad(object->operation.verify->theirPublicKey->u.plaintext.keyMaterial
+                                        + OCTET_STRING_OFFSET
+                                        + object->operation.verify->curve->length,
+                                       SCRATCH_PUBLIC_Y,
+                                       object->operation.verify->curve->length);
+
+            PKAEccMultiplyStart(SCRATCH_BUFFER_1,
+                                SCRATCH_PUBLIC_X,
+                                SCRATCH_PUBLIC_Y,
                                 object->operation.verify->curve->prime,
                                 object->operation.verify->curve->a,
                                 object->operation.verify->curve->b,
@@ -562,8 +683,8 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_MULT_PUB_KEY_RESULT:
 
-            pkaResult = PKAEccMultiplyGetResult(ECDSACC26X2_SCRATCH_BUFFER_2,
-                                                ECDSACC26X2_SCRATCH_BUFFER_2 + object->operation.verify->curve->length,
+            pkaResult = PKAEccMultiplyGetResult(SCRATCH_BUFFER_1,
+                                                SCRATCH_BUFFER_1 + object->operation.verify->curve->length,
                                                 resultAddress,
                                                 object->operation.verify->curve->length);
 
@@ -571,10 +692,10 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_ADD_MULT_RESULTS:
 
-            PKAEccAddStart(ECDSACC26X2_SCRATCH_BUFFER,
-                           ECDSACC26X2_SCRATCH_BUFFER + object->operation.verify->curve->length,
-                           ECDSACC26X2_SCRATCH_BUFFER_2,
-                           ECDSACC26X2_SCRATCH_BUFFER_2 + object->operation.verify->curve->length,
+            PKAEccAddStart(SCRATCH_BUFFER_0,
+                           SCRATCH_BUFFER_0 + object->operation.verify->curve->length,
+                           SCRATCH_BUFFER_1,
+                           SCRATCH_BUFFER_1 + object->operation.verify->curve->length,
                            object->operation.verify->curve->prime,
                            object->operation.verify->curve->a,
                            object->operation.verify->curve->length,
@@ -584,7 +705,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_ADD_MULT_RESULTS_RESULT:
 
-            pkaResult = PKAEccAddGetResult(ECDSACC26X2_SCRATCH_BUFFER,
+            pkaResult = PKAEccAddGetResult(SCRATCH_BUFFER_0,
                                            NULL,
                                            resultAddress,
                                            object->operation.verify->curve->length);
@@ -593,7 +714,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_POINTX_MOD_N:
 
-            PKABigNumModStart(ECDSACC26X2_SCRATCH_BUFFER,
+            PKABigNumModStart(SCRATCH_BUFFER_0,
                               object->operation.verify->curve->length,
                               object->operation.verify->curve->order,
                               object->operation.verify->curve->length,
@@ -603,7 +724,7 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_POINTX_MOD_N_RESULT:
 
-            pkaResult = PKABigNumModGetResult(ECDSACC26X2_SCRATCH_BUFFER,
+            pkaResult = PKABigNumModGetResult(SCRATCH_BUFFER_0,
                                               object->operation.verify->curve->length,
                                               resultAddress);
 
@@ -611,21 +732,21 @@ static int_fast16_t ECDSACC26X2_runVerifyFSM(ECDSA_Handle handle) {
 
         case ECDSACC26X2_FSM_VERIFY_COMPARE_RESULT_R:
 
-            PKABigNumCmpStart(object->operation.verify->r,
-                              ECDSACC26X2_SCRATCH_BUFFER,
-                              object->operation.verify->curve->length);
+            CryptoUtils_reverseCopyPad(object->operation.verify->r,
+                                       SCRATCH_PRIVATE_KEY,
+                                       object->operation.verify->curve->length);
 
-            while(PKAGetOpsStatus() == PKA_STATUS_OPERATION_BUSY);
-
-            pkaResult = PKABigNumCmpGetResult();
-
-            if (pkaResult == PKA_STATUS_EQUAL) {
+            /* The CPU will rearrange each word in r to take care of aligned
+             * access. The scratch buffer location is already word aligned.
+             */
+            if (CryptoUtils_buffersMatchWordAligned((uint32_t *)SCRATCH_BUFFER_0,
+                                                    (uint32_t *)SCRATCH_PRIVATE_KEY,
+                                                    object->operation.verify->curve->length)) {
                 return ECDSA_STATUS_SUCCESS;
             }
             else {
                 return ECDSA_STATUS_ERROR;
             }
-
 
         default:
             return ECDSA_STATUS_ERROR;
@@ -737,17 +858,15 @@ void ECDSA_close(ECDSA_Handle handle) {
 
 
 /*
- *  ======== ECDSA_open ========
+ *  ======== ECDSA_construct ========
  */
-ECDSA_Handle ECDSA_open(uint_least8_t index, ECDSA_Params *params) {
+ECDSA_Handle ECDSA_construct(ECDSA_Config *config, const ECDSA_Params *params) {
     ECDSA_Handle                  handle;
     ECDSACC26X2_Object           *object;
     uint_fast8_t                key;
 
-    handle = (ECDSA_Handle)&(ECDSA_config[index]);
+    handle = (ECDSA_Handle)config;
     object = handle->object;
-
-    DebugP_assert(index < ECDSA_count);
 
     /* If params are NULL, use defaults */
     if (params == NULL) {
@@ -777,22 +896,15 @@ ECDSA_Handle ECDSA_open(uint_least8_t index, ECDSA_Params *params) {
     return handle;
 }
 
+
 /*
  *  ======== ECDSA_sign ========
  */
 int_fast16_t ECDSA_sign(ECDSA_Handle handle, ECDSA_OperationSign *operation) {
     ECDSACC26X2_Object *object              = handle->object;
     ECDSACC26X2_HWAttrs const *hwAttrs      = handle->hwAttrs;
-
-    DebugP_assert(handle);
-    DebugP_assert(operation);
-    DebugP_assert(operation->eccParams);
-    DebugP_assert(operation->eccParams->length == myPrivateKey->u.plaintext.keyLength);
-    DebugP_assert(operation->myPrivateKey->encoding == CryptoKey_PLAINTEXT);
-    DebugP_assert(operation->hash);
-    DebugP_assert(operation->r);
-    DebugP_assert(operation->s);
-    DebugP_assert(operation->pmsn);
+    TRNG_Params trngParams;
+    int_fast16_t trngStatus;
 
     if (ECDSACC26X2_waitForAccess(handle) != SemaphoreP_OK) {
         return ECDSA_STATUS_RESOURCE_UNAVAILABLE;
@@ -800,13 +912,42 @@ int_fast16_t ECDSA_sign(ECDSA_Handle handle, ECDSA_OperationSign *operation) {
 
     object->operation.sign      = operation;
     object->operationType       = ECDSA_OPERATION_TYPE_SIGN;
-    object->fsmState            = ECDSACC26X2_FSM_SIGN_VALIDATE_PMSN;
+    object->fsmState            = ECDSACC26X2_FSM_SIGN_COMPUTE_R;
     object->fsmFxn              = ECDSACC26X2_runSignFSM;
-    object->operationStatus     = ECDSA_STATUS_ERROR;
+    object->operationStatus     = ECDSACC26X2_STATUS_FSM_RUN_FSM;
     object->operationCanceled   = false;
-    scratchBufferSize           = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
-    scratchBuffer2Size          = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+    scratchBuffer0Size          = SCRATCH_BUFFER_SIZE;
+    scratchBuffer1Size          = SCRATCH_BUFFER_SIZE;
 
+    /* We want to store the PMSN in a section of PKA RAM that will survive
+     * several PKA operations. Otherwise we would need to store it in an SRAM
+     * buffer instead.
+     */
+    CryptoKeyPlaintext_initBlankKey(&object->pmsnKey,
+                                    (uint8_t *)SCRATCH_BUFFER_0,
+                                    operation->curve->length);
+
+    /* We are calling TRNG_init() here to limit references to TRNG_xyz to sign
+     * operations.
+     * That means that the linker can remove all TRNG related code if only
+     * ECDSA_verify functionality is used.
+     */
+    TRNG_init();
+
+    object->trngHwAttrs.intPriority = hwAttrs->trngIntPriority;
+    object->trngConfig.object       = &object->trngObject;
+    object->trngConfig.hwAttrs      = &object->trngHwAttrs;
+
+    trngParams.returnBehavior   = TRNG_RETURN_BEHAVIOR_CALLBACK;
+    trngParams.callbackFxn      = ECDSACC26X2_trngCallback;
+
+    object->trngHandle = TRNG_construct(&object->trngConfig, &trngParams);
+
+    if (object->trngHandle == NULL) {
+        SemaphoreP_post(&PKAResourceCC26XX_accessSemaphore);
+
+        return ECDSA_STATUS_ERROR;
+    }
 
     /* We need to set the HWI function and priority since the same physical interrupt is shared by multiple
      * drivers and they all need to coexist. Whenever a driver starts an operation, it
@@ -817,12 +958,19 @@ int_fast16_t ECDSA_sign(ECDSA_Handle handle, ECDSA_OperationSign *operation) {
 
     PKAResourceCC26XX_pollingFlag = 0;
 
-    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
-
-    /* Run the FSM by triggering the interrupt. It is level triggered
-     * and the complement of the RUN bit.
+    /* Generate the PMSN using the TRNG in callback mode. The TRNG callback
+     * will kick off the ECDSA sign state machine once the PMSN is in place.
+     * This is completely transparent to the application.
      */
-    IntEnable(INT_PKA_IRQ);
+    trngStatus = TRNG_generateEntropy(object->trngHandle, &object->pmsnKey);
+
+    if (trngStatus != TRNG_STATUS_SUCCESS) {
+        SemaphoreP_post(&PKAResourceCC26XX_accessSemaphore);
+
+        return ECDSA_STATUS_ERROR;
+    }
+
+    Power_setConstraint(PowerCC26XX_DISALLOW_STANDBY);
 
     return ECDSACC26X2_waitForResult(handle);
 }
@@ -834,15 +982,11 @@ int_fast16_t ECDSA_verify(ECDSA_Handle handle, ECDSA_OperationVerify *operation)
     ECDSACC26X2_Object *object              = handle->object;
     ECDSACC26X2_HWAttrs const *hwAttrs      = handle->hwAttrs;
 
-    DebugP_assert(handle);
-    DebugP_assert(operation);
-    DebugP_assert(operation->eccParams);
-    DebugP_assert(operation->eccParams->length == theirPublicKey->u.plaintext.keyLength / 2);
-    DebugP_assert(operation->theirPublicKey->encoding == CryptoKey_PLAINTEXT);
-    DebugP_assert(operation->hash);
-    DebugP_assert(operation->r);
-    DebugP_assert(operation->s);
-
+    /* Validate key sizes to make sure octet string format is used */
+    if (operation->theirPublicKey->u.plaintext.keyLength != 2 * operation->curve->length + OCTET_STRING_OFFSET ||
+        operation->theirPublicKey->u.plaintext.keyMaterial[0] != 0x04) {
+        return ECDSA_STATUS_INVALID_KEY_SIZE;
+    }
 
     if (ECDSACC26X2_waitForAccess(handle) != SemaphoreP_OK) {
         return ECDSA_STATUS_RESOURCE_UNAVAILABLE;
@@ -853,10 +997,10 @@ int_fast16_t ECDSA_verify(ECDSA_Handle handle, ECDSA_OperationVerify *operation)
     object->operationType       = ECDSA_OPERATION_TYPE_VERIFY;
     object->fsmState            = ECDSACC26X2_FSM_VERIFY_R_S_IN_RANGE;
     object->fsmFxn              = ECDSACC26X2_runVerifyFSM;
-    object->operationStatus     = ECDSA_STATUS_ERROR;
+    object->operationStatus     = ECDSACC26X2_STATUS_FSM_RUN_FSM;
     object->operationCanceled   = false;
-    scratchBufferSize           = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
-    scratchBuffer2Size          = ECDSACC26X2_SCRATCH_BUFFER_SIZE;
+    scratchBuffer0Size          = SCRATCH_BUFFER_SIZE;
+    scratchBuffer1Size          = SCRATCH_BUFFER_SIZE;
 
 
 

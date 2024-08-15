@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,7 +51,8 @@
 
 #if (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X0_CC26X0)
     #include DeviceFamily_constructPath(inc/hw_aon_sysctl.h)
-#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
+#elif (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2 || \
+    DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X1_CC26X1)
     #include DeviceFamily_constructPath(inc/hw_aon_pmctl.h)
 #endif
 
@@ -145,6 +146,7 @@ static void PINCC26XX_setIoCfg(PIN_Config updateMask, PIN_Config pinCfg) {
     uint32_t tmpConfig;
     PIN_Id pinId = PIN_ID(pinCfg);
     bool invertChanges;
+    uint32_t key;
 
     if (pinCfg & PIN_GEN) {
         // Translate from device-independent to device-specific PIN_Config values
@@ -181,7 +183,19 @@ static void PINCC26XX_setIoCfg(PIN_Config updateMask, PIN_Config pinCfg) {
 
     /* Clear any pending events from the previous pin configuration before we write the new interrupt settings */
     PINCC26XX_clrPendInterrupt(pinId);
-    HWREG(IOC_BASE + IOC_O_IOCFG0 + 4 * pinId) = tmpConfig;
+
+    /*
+     * Writes to the first byte of the IOCFG register will cause a glitch
+     * on the internal IO line. To avoid this, we only want to write
+     * the upper 24-bits of the IOCFG register when updating the configuration
+     * bits. We do this 1 byte at a time.
+     */
+    uint32_t iocfgReg = IOC_BASE + IOC_O_IOCFG0 + 4 * pinId;
+    key = HwiP_disable();
+    HWREGB(iocfgReg + 1) = (uint8_t) (tmpConfig >> 8);
+    HWREGB(iocfgReg + 2) = (uint8_t) (tmpConfig >> 16);
+    HWREGB(iocfgReg + 3) = (uint8_t) (tmpConfig >> 24);
+    HwiP_restore(key);
 
     // Update GPIO output value and enable depending on previous output mode (enabled or disabled)
     {
@@ -196,7 +210,7 @@ static void PINCC26XX_setIoCfg(PIN_Config updateMask, PIN_Config pinCfg) {
 
         if (updateMask & PINCC26XX_BM_GPIO_OUTPUT_EN) {
             // Set GPIO output enable
-            uint32_t key = HwiP_disable();
+            key = HwiP_disable();
                 HWREG(GPIO_BASE + GPIO_O_DOE31_0) =
                     (HWREG(GPIO_BASE + GPIO_O_DOE31_0) & ~(1 << pinId)) |
                     ((pinCfg&PINCC26XX_BM_GPIO_OUTPUT_EN) ? (1 << pinId) : 0);
@@ -259,18 +273,40 @@ PIN_Status PIN_init(const PIN_Config pinConfig[]) {
         case CHIP_TYPE_CC1310:
         case CHIP_TYPE_CC1350:
         case CHIP_TYPE_CC1312:
+        case CHIP_TYPE_CC1312R7:
             if (ChipInfo_GetPackageType() == PACKAGE_7x7) {
                 pinLowerBound = 1;
                 reservedPinMask |= 0x01;
             }
             break;
         case CHIP_TYPE_CC1352:
+        case CHIP_TYPE_CC1352R7:
             pinLowerBound = 3;
             reservedPinMask |= 0x07;
             break;
         case CHIP_TYPE_CC1352P:
-            pinLowerBound = 5;
-            reservedPinMask |= 0x1F;
+        case CHIP_TYPE_CC2652P:
+        case CHIP_TYPE_CC1352P7:
+        case CHIP_TYPE_CC2652P7:
+            if (ChipInfo_GetPackageType() == PACKAGE_7x7) {
+                pinLowerBound = 5;
+                reservedPinMask |= 0x1F;
+            }
+            else if (ChipInfo_GetPackageType() == PACKAGE_7x7_SIP) {
+                /* Do nothing for PACKAGE_7x7_SIP since the CC2652PSIP has
+                 * DIO0-DIO31 bonded out.
+                 */
+            }
+            break;
+        default:
+            /* CHIP_TYPE_CC2640
+             * CHIP_TYPE_CC2650
+             * CHIP_TYPE_CC2640R2
+             * CHIP_TYPE_CC2642
+             * CHIP_TYPE_CC2652
+             * CHIP_TYPE_CC2652R7
+             * CHIP_TYPE_CC2652RF4
+             */
             break;
     }
 
@@ -371,7 +407,6 @@ PIN_Status PIN_init(const PIN_Config pinConfig[]) {
 PIN_Handle PIN_open(PIN_State* state, const PIN_Config pinList[]) {
     uint32_t i;
     bool pinsAllocated = true;
-    uint32_t portMask = 0;
     PIN_Id pinId;
 
     if ((state == NULL) || (pinList == NULL)) {
@@ -390,9 +425,6 @@ PIN_Handle PIN_open(PIN_State* state, const PIN_Config pinList[]) {
                     pinHandleTable[pinId]) {
                 pinsAllocated = false;
                 break;
-            } else {
-                // Generate bitmask for port operations (always one port on CC26xx)
-                portMask |= (1 << pinId);
             }
         }
     }

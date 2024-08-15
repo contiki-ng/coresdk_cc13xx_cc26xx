@@ -119,6 +119,7 @@ static void AESECB_hwiFxn (uintptr_t arg0) {
  *  ======== AESECB_cleanup ========
  */
 static void AESECB_cleanup(AESECB_Handle handle) {
+    AESECBCC26XX_Object *object = handle->object;
 
     /* Since plaintext keys use two reserved (by convention) slots in the keystore,
      * the slots must be invalidated to prevent its re-use without reloading
@@ -133,11 +134,13 @@ static void AESECB_cleanup(AESECB_Handle handle) {
      */
     AESSelectAlgorithm(0x00);
 
-    /*  Grant access for other threads to use the crypto module.
-     *  The semaphore must be posted before the callbackFxn to allow the chaining
-     *  of operations.
-     */
-    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    if (object->threadSafe) {
+        /*  Grant access for other threads to use the crypto module.
+         *  The semaphore must be posted before the callbackFxn to allow the chaining
+         *  of operations.
+         */
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    }
 
     Power_releaseConstraint(PowerCC26XX_DISALLOW_STANDBY);
 }
@@ -152,17 +155,15 @@ void AESECB_init(void) {
 }
 
 /*
- *  ======== AESECB_open ========
+ *  ======== AESECB_construct ========
  */
-AESECB_Handle AESECB_open(uint_least8_t index, AESECB_Params *params) {
+AESECB_Handle AESECB_construct(AESECB_Config *config, const AESECB_Params *params) {
     AESECB_Handle               handle;
     AESECBCC26XX_Object        *object;
     uint_fast8_t                key;
 
-    handle = (AESECB_Handle)&(AESECB_config[index]);
+    handle = config;
     object = handle->object;
-
-    DebugP_assert(index < AESECB_count);
 
     key = HwiP_disable();
 
@@ -187,6 +188,7 @@ AESECB_Handle AESECB_open(uint_least8_t index, AESECB_Params *params) {
     object->returnBehavior = params->returnBehavior;
     object->callbackFxn = params->callbackFxn;
     object->semaphoreTimeout = params->returnBehavior == AESECB_RETURN_BEHAVIOR_BLOCKING ? params->timeout : SemaphoreP_NO_WAIT;
+    object->threadSafe = true;
 
     /* Set power dependency - i.e. power up and enable clock for Crypto (CryptoResourceCC26XX) module. */
     Power_setDependency(PowerCC26XX_PERIPH_CRYPTO);
@@ -272,12 +274,14 @@ static int_fast16_t AESECB_startOperation(AESECB_Handle handle,
     DebugP_assert(keyLength == 16 ||
                   keyLength == 32);
 
-    /* Try and obtain access to the crypto module */
-    resourceAcquired = SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore,
-                                       object->semaphoreTimeout);
+    if (object->threadSafe) {
+        /* Try and obtain access to the crypto module */
+        resourceAcquired = SemaphoreP_pend(&CryptoResourceCC26XX_accessSemaphore,
+                                           object->semaphoreTimeout);
 
-    if (resourceAcquired != SemaphoreP_OK) {
-        return AESECB_STATUS_RESOURCE_UNAVAILABLE;
+        if (resourceAcquired != SemaphoreP_OK) {
+            return AESECB_STATUS_RESOURCE_UNAVAILABLE;
+        }
     }
 
     object->operationType = operationType;
@@ -295,9 +299,10 @@ static int_fast16_t AESECB_startOperation(AESECB_Handle handle,
 
     /* Load the key from RAM or flash into the key store at a hardcoded and reserved location */
     if (AESWriteToKeyStore(keyingMaterial, keyLength, AES_KEY_AREA_6) != AES_SUCCESS) {
-        /* Release the CRYPTO mutex */
-        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
-
+        if (object->threadSafe) {
+            /* Release the CRYPTO mutex */
+            SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        }
         return AESECB_STATUS_ERROR;
     }
 
@@ -321,8 +326,10 @@ static int_fast16_t AESECB_startOperation(AESECB_Handle handle,
         AESInvalidateKey(AES_KEY_AREA_6);
         AESInvalidateKey(AES_KEY_AREA_7);
 
-        /* Release the CRYPTO mutex */
-        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        if (object->threadSafe) {
+            /* Release the CRYPTO mutex */
+            SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+        }
 
         return AESECB_STATUS_ERROR;
     }
@@ -388,11 +395,13 @@ int_fast16_t AESECB_cancelOperation(AESECB_Handle handle) {
 
     HwiP_restore(key);
 
-    /*  Grant access for other threads to use the crypto module.
-     *  The semaphore must be posted before the callbackFxn to allow the chaining
-     *  of operations.
-     */
-    SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    if (object->threadSafe) {
+        /*  Grant access for other threads to use the crypto module.
+         *  The semaphore must be posted before the callbackFxn to allow the chaining
+         *  of operations.
+         */
+        SemaphoreP_post(&CryptoResourceCC26XX_accessSemaphore);
+    }
 
     if (object->returnBehavior == AESECB_RETURN_BEHAVIOR_BLOCKING) {
         /* Unblock the pending task to signal that the operation is complete. */
@@ -407,4 +416,23 @@ int_fast16_t AESECB_cancelOperation(AESECB_Handle handle) {
     }
 
     return AESECB_STATUS_SUCCESS;
+}
+
+bool AESECB_acquireLock(AESECB_Handle handle, uint32_t timeout) {
+    return CryptoResourceCC26XX_acquireLock(timeout);
+}
+
+void AESECB_releaseLock(AESECB_Handle handle) {
+    CryptoResourceCC26XX_releaseLock();
+}
+
+void AESECB_enableThreadSafety(AESECB_Handle handle) {
+    AESECBCC26XX_Object *object = handle->object;
+
+    object->threadSafe = true;
+}
+void AESECB_disableThreadSafety(AESECB_Handle handle) {
+    AESECBCC26XX_Object *object = handle->object;
+
+    object->threadSafe = false;
 }

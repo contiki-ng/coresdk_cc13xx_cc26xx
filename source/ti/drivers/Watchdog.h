@@ -116,7 +116,7 @@
  *  params.resetMode = Watchdog_RESET_ON;
  *  params.callbackFxn = (Watchdog_Callback) UserCallbackFxn;
  *
- *  watchdogHandle = Watchdog_open(Board_WATCHDOG0, &params);
+ *  watchdogHandle = Watchdog_open(CONFIG_WATCHDOG0, &params);
  *  if (watchdogHandle == NULL) {
  *     // Error opening Watchdog
  *     while (1);
@@ -153,11 +153,11 @@
 #ifndef ti_drivers_Watchdog__include
 #define ti_drivers_Watchdog__include
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdint.h>
 
 /**
  *  @defgroup Watchdog_CONTROL Watchdog_control command and status codes
@@ -261,7 +261,7 @@ typedef struct Watchdog_Config_ *Watchdog_Handle;
  *  session is halted. To avoid unwanted resets, the Watchdog can be set to
  *  stall while the processor is stopped by the debugger.
  */
-typedef enum Watchdog_DebugMode_ {
+typedef enum {
     Watchdog_DEBUG_STALL_ON, /*!< Watchdog will be stalled at breakpoints */
     Watchdog_DEBUG_STALL_OFF /*!< Watchdog will keep running at breakpoints */
 } Watchdog_DebugMode;
@@ -273,7 +273,7 @@ typedef enum Watchdog_DebugMode_ {
  *  be configured to either generate a reset upon timeout or simply produce a
  *  periodic interrupt.
  */
-typedef enum Watchdog_ResetMode_ {
+typedef enum {
     Watchdog_RESET_OFF, /*!< Timeouts generate interrupts only */
     Watchdog_RESET_ON   /*!< Generates reset after timeout */
 } Watchdog_ResetMode;
@@ -296,7 +296,7 @@ typedef void (*Watchdog_Callback)(uintptr_t handle);
  *
  *  @sa         Watchdog_Params_init()
  */
-typedef struct Watchdog_Params_ {
+typedef struct {
     Watchdog_Callback   callbackFxn;    /*!< Pointer to callback. Not supported
                                              on all targets. */
     Watchdog_ResetMode  resetMode;      /*!< Mode to enable resets.
@@ -359,7 +359,7 @@ typedef uint32_t (*Watchdog_ConvertMsToTicksFxn)   (Watchdog_Handle handle,
  *              required set of functions to control a specific Watchdog driver
  *              implementation.
  */
-typedef struct Watchdog_FxnTable_ {
+typedef struct {
     Watchdog_ClearFxn             watchdogClear;
     Watchdog_CloseFxn             watchdogClose;
     Watchdog_ControlFxn           watchdogControl;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -68,9 +68,12 @@
  *  @li I2S_Params_init(): @copybrief I2S_Params_init
  *  @li I2S_Transaction_init(): @copybrief I2S_Transaction_init
  *  @li I2S_setReadQueueHead(): @copybrief I2S_setReadQueueHead
+ *  @li I2S_setWriteQueueHead(): @copybrief I2S_setWriteQueueHead
  *  @li I2S_startClocks(): @copybrief I2S_startClocks
  *  @li I2S_startRead(): @copybrief I2S_startRead
+ *  @li I2S_startWrite(): @copybrief I2S_startWrite
  *  @li I2S_stopRead(): @copybrief I2S_stopRead
+ *  @li I2S_stopWrite(): @copybrief I2S_stopWrite
  *  @li I2S_stopClocks(): @copybrief I2S_stopClocks
  *  @li I2S_close(): @copybrief I2S_close
  *
@@ -98,7 +101,7 @@
  *  the buffer)
  *  - the number of completions of the transaction. This value is basically incremented by one
  *  every time the transaction is completed.
- *  .
+ *
  *  Please note that these two fields are valid only when the transaction has been completed.
  *  Consult examples to get more details on the transaction usage.
  *
@@ -147,7 +150,6 @@
  *  @anchor ti_drivers_I2S_Example_PlayAndStop_Code
  *  @code
  *  static I2S_Handle i2sHandle;
- *  static I2S_Config i2sConfig;
  *
  *  static uint16_t readBuf1[500]; // the data read will end up in this buffer
  *  static uint16_t readBuf2[500]; // the data read will end up in this buffer
@@ -173,12 +175,8 @@
  *
  *      if(status & I2S_ALL_TRANSACTIONS_SUCCESS){
  *
- *          //Note: You should normally avoid to use I2S_stopRead() / I2S_stopWrite() in the callback.
- *          //However, here we do not have any transaction left in the queue (cf. status' value) so
- *          //the call to I2S_stoWrite() will not block.
- *          //Moreover, by delaying I2S_stopWrite() the driver could raise an error (data underflow).
- *
- *          I2S_stopWrite(i2sHandle);
+ *          // Note: Here we do not queue new transfers or set a new queue-head.
+ *          // The driver will stop sending out data on its own.
  *          writeStopped = (bool)true;
  *      }
  *  }
@@ -187,21 +185,15 @@
  *
  *      if(status & I2S_ALL_TRANSACTIONS_SUCCESS){
  *
- *          //Note: You should normally avoid to use I2S_stopRead() / I2S_stopWrite() in the callback.
- *          //However, here we do not have any transaction left in the queue (cf. status' value) so
- *          //the call to I2S_stopRead() will not block.
- *          //Moreover, by delaying I2S_stopRead() the driver could raise an error (data overflow).
- *
- *          I2S_stopRead(i2sHandle);
+ *          // Note: Here we do not queue new transfers or set a new queue-head.
+ *          // The driver will stop receiving data on its own.
  *          readStopped = (bool)true;
  *      }
  *  }
  *
  *  static void errCallbackFxn(I2S_Handle handle, int_fast16_t status, I2S_Transaction *transactionPtr) {
- *     I2S_stopRead(handle);
- *     I2S_stopWrite(handle);
- *     I2S_stopClocks(handle);
- *     I2S_close(handle);
+ *
+ *      // Handle the I2S error
  *  }
  *
  *  void *modePlayAndStopThread(void *arg0)
@@ -219,7 +211,7 @@
  *      i2sParams.readCallback          =  readCallbackFxn ;
  *      i2sParams.errorCallback         =  errCallbackFxn;
  *
- *      i2sHandle = I2S_open(Board_I2S0, &i2sParams);
+ *      i2sHandle = I2S_open(CONFIG_I2S0, &i2sParams);
  *
  *      // Initialize the read-transactions
  *      I2S_Transaction_init(&i2sRead1);
@@ -260,12 +252,12 @@
  *      readStopped = (bool)false;
  *      writeStopped = (bool)false;
  *
- *      while(1) {
+ *      while (1) {
  *
  *          if(readStopped && writeStopped) {
  *              I2S_stopClocks(i2sHandle);
  *              I2S_close(i2sHandle);
- *              while(1);
+ *              while (1);
  *          }
  *      }
  *  }
@@ -284,7 +276,7 @@
  *  @anchor ti_drivers_I2S_Example_Streaming_Code
  *  @code
  *  static I2S_Handle i2sHandle;
- *  static I2S_Config i2sConfig;
+ *  static sem_t semDataReadyForTreatment;
  *
  *  // These buffers will successively be written, treated and sent out
  *  static uint16_t readBuf1[500];
@@ -346,7 +338,7 @@
  *          List_put(&treatmentList, (List_Elem*)transactionFinished);
  *
  *          // Start the treatment of the data
- *          Semaphore_post(dataReadyForTreatment);
+ *          sem_post(&semDataReadyForTreatment);
  *
  *          // We do not need to queue transaction here: writeCallbackFxn takes care of this :)
  *      }
@@ -354,28 +346,7 @@
  *
  *  static void errCallbackFxn(I2S_Handle handle, int_fast16_t status, I2S_Transaction *transactionPtr) {
  *
- *  }
- *
- *  void *myTreatmentThread(void *arg0){
- *
- *      int k;
- *
- *      while(1) {
- *          Semaphore_pend(dataReadyForTreatment, BIOS_WAIT_FOREVER);
- *
- *          if(lastAchievedReadTransaction != NULL) {
- *
- *              // Need a critical section to be sure to have corresponding bufPtr and bufSize
- *              uintptr_t key = HwiP_disable();
- *              uint16_t *buf = lastAchievedReadTransaction->bufPtr;
- *              uint16_t bufLength = lastAchievedReadTransaction->bufSize / sizeof(uint16_t);
- *              HwiP_restore(key);
- *
- *              // My dummy data treatment...
- *              for(k=0; k<bufLength; k++) {buf[k] --;}
- *              for(k=0; k<bufLength; k++) {buf[k] ++;}
- *          }
- *      }
+ *      // Handle the I2S error
  *  }
  *
  *  void *echoExampleThread(void *arg0)
@@ -383,6 +354,11 @@
  *      I2S_Params i2sParams;
  *
  *      I2S_init();
+ *
+ *      int retc = sem_init(&semDataReadyForTreatment, 0, 0);
+ *      if (retc == -1) {
+ *          while (1);
+ *      }
  *
  *      // Initialize the treatmentList (this list is initially empty)
  *      List_clearList(&treatmentList);
@@ -394,7 +370,7 @@
  *      i2sParams.readCallback          =  readCallbackFxn ;
  *      i2sParams.errorCallback         =  errCallbackFxn;
  *
- *      i2sHandle = I2S_open(Board_I2S0, &i2sParams);
+ *      i2sHandle = I2S_open(CONFIG_I2S0, &i2sParams);
  *
  *      // Initialize the read-transactions
  *      I2S_Transaction_init(&i2sRead1);
@@ -442,7 +418,34 @@
  *      I2S_startWrite(i2sHandle);
  *      I2S_startRead(i2sHandle);
  *
- *      while(1);
+ *      while (1) {
+ *          uint8_t k = 0;
+ *          I2S_Transaction* lastAchievedReadTransaction = NULL;
+ *
+ *          retc = sem_wait(&semDataReadyForTreatment);
+ *          if (retc == -1) {
+ *              while (1);
+ *          }
+ *
+ *          lastAchievedReadTransaction = (I2S_Transaction*) List_head(&treatmentList);
+ *
+ *          if(lastAchievedReadTransaction != NULL) {
+ *
+ *              // Need a critical section to be sure to have corresponding bufPtr and bufSize
+ *              uintptr_t key = HwiP_disable();
+ *              uint16_t *buf = lastAchievedReadTransaction->bufPtr;
+ *              uint16_t bufLength = lastAchievedReadTransaction->bufSize / sizeof(uint16_t);
+ *              HwiP_restore(key);
+ *
+ *              // My dummy data treatment...
+ *              for(k=0; k<bufLength; k++) {
+ *                  buf[k]--;
+ *              }
+ *              for(k=0; k<bufLength; k++) {
+ *                  buf[k]++;
+ *              }
+ *          }
+ *      }
  *  }
  *  @endcode
  *
@@ -457,8 +460,6 @@
  *  @anchor ti_drivers_I2S_Example_RepeatMode_Code
  *  @code
  *  static I2S_Handle i2sHandle;
- *  static I2S_Config i2sConfig;
- *  static I2SCC26XX_Object i2sObject;
  *
  *  // This buffer will be continuously re-written
  *  static uint16_t readBuf[500];
@@ -484,10 +485,9 @@
  *          // After an arbitrary number of completion of the transaction, we will stop writting
  *          if(transactionFinished->numberOfCompletions >= 10) {
  *
- *              // Note: You should avoid to use I2S_stopRead() / I2S_stopWrite() in the callback,
- *              // especially if you do not want to stop both read and write transfers.
+ *              // Note: You cannot use I2S_stopRead() / I2S_stopWrite() in the callback.
  *              // The execution of these functions is potentially blocking and can mess up the
- *              // other transfers.
+ *              // system.
  *
  *              writeFinished = (bool)true;
  *          }
@@ -501,6 +501,7 @@
  *
  *  static void errCallbackFxn(I2S_Handle handle, int_fast16_t status, I2S_Transaction *transactionPtr) {
  *
+ *      // Handle the I2S error
  *  }
  *
  *  void *modeRepeat(void *arg0)
@@ -515,7 +516,7 @@
  *      i2sParams.readCallback          =  readCallbackFxn ;
  *      i2sParams.errorCallback         =  errCallbackFxn;
  *
- *      i2sHandle = I2S_open(0, &i2sParams);
+ *      i2sHandle = I2S_open(CONFIG_I2S0, &i2sParams);
  *
  *      // Initialize the read-transactions
  *      I2S_Transaction_init(&i2sRead);
@@ -541,7 +542,7 @@
  *      I2S_startWrite(i2sHandle);
  *      I2S_startRead(i2sHandle);
  *
- *      while(1){
+ *      while (1) {
  *
  *          if(writeFinished){
  *              writeFinished = (bool)false;
@@ -645,15 +646,33 @@ extern "C" {
  #define I2S_PTR_WRITE_ERROR                     (0x1000U)
  /** @}*/
 
+/*! @brief  I2S Global configuration
+ *
+ *  The I2S_Config structure contains a set of pointers used to characterize
+ *  the I2S driver implementation.
+ *
+ *  This structure needs to be defined before calling I2S_init() and it must
+ *  not be changed thereafter.
+ *
+ *  @sa     I2S_init()
+ */
+typedef struct {
+    /*! Pointer to a driver specific data object */
+    void                   *object;
+
+    /*! Pointer to a driver specific hardware attributes structure */
+    void          const    *hwAttrs;
+} I2S_Config;
+
 /*!
  *  @brief      A handle that is returned from a I2S_open() call.
  */
-typedef struct I2S_Config_ *I2S_Handle;
+typedef I2S_Config *I2S_Handle;
 
 /*!
  *  @brief I2S transaction descriptor.
  */
-typedef struct I2S_Transaction_ {
+typedef struct {
     /*! Used internally to link descriptors together */
     List_Elem               queueElement;
     /*! Pointer to the buffer */
@@ -679,8 +698,8 @@ typedef struct I2S_Transaction_ {
  *                              :I2S_STATUS_SUCCESS, :I2S_STATUS_ERROR,
  *                              :I2S_STATUS_BUFFER_UNAVAILABLE, :I2S_STATUS_TIMEOUT)
  *
- *  @param      I2S_Transaction *transactionPtr: Pointer on the transaction just completed.
- *                              For error calbacks, transactionPtr points on NULL.
+ *  @param      I2S_Transaction *transactionPtr: Pointer on the transaction that has just started.
+ *                              For error callbacks, transactionPtr points on NULL.
  *
  */
 typedef void (*I2S_Callback)(I2S_Handle handle, int_fast16_t status, I2S_Transaction *transactionPtr);
@@ -696,12 +715,20 @@ typedef void (*I2S_Callback)(I2S_Handle handle, int_fast16_t status, I2S_Transac
 typedef void (*I2S_RegUpdate)(uint32_t ui32Base, uint32_t ui32NextPointer);
 
 /*!
+ *  @brief      The definition of a function used to stop an I2S interface
+ *
+ *  @param      I2S_Handle      I2S_Handle
+ *
+ */
+typedef void (*I2S_StopInterface)(I2S_Handle handle);
+
+/*!
  *  @brief      I2S slot memory length setting
  *
  *  The enum defines if the module uses a 16 bits or a 24 bits buffer in memory.
  *  This value has no influence on the number of bit transmitted.
  */
-typedef enum I2S_MemoryLength_ {
+typedef enum {
 
     I2S_MEMORY_LENGTH_8BITS  =  8U,   /*!<    Buffer used is 8 bits length. Not available for CC26XX. */
     I2S_MEMORY_LENGTH_16BITS = 16U,   /*!<    Buffer used is 16 bits length. */
@@ -716,7 +743,7 @@ typedef enum I2S_MemoryLength_ {
  *  The enum defines if the module acts like a master (clocks are internally generated)
  *  or a slave (the clocks are externally generated).
  */
-typedef enum I2S_Role_ {
+typedef enum {
 
     I2S_SLAVE  = 0,    /*!<    Module is a slave, clocks are externally generated. */
     I2S_MASTER = 1     /*!<    Module is a master, clocks are internally generated. */
@@ -728,7 +755,7 @@ typedef enum I2S_Role_ {
  *
  *  The enum defines if sampling is done on BLCK rising or falling edges.
  */
-typedef enum I2S_SamplingEdge_ {
+typedef enum {
 
     I2S_SAMPLING_EDGE_FALLING  = 0,    /*!<    Sampling on falling edges. */
     I2S_SAMPLING_EDGE_RISING   = 1     /*!<    Sampling on rising edges. */
@@ -740,7 +767,7 @@ typedef enum I2S_SamplingEdge_ {
  *
  *  The enum defines if the I2S if set with single or dual phase.
  */
-typedef enum I2S_PhaseType_ {
+typedef enum {
 
     I2S_PHASE_TYPE_SINGLE  = 0U,   /*!<    Single phase */
     I2S_PHASE_TYPE_DUAL    = 1U,   /*!<    Dual phase */
@@ -752,7 +779,7 @@ typedef enum I2S_PhaseType_ {
  *
  *  The enum defines the different settings for the data interfaces (SD0 and SD1).
  */
-typedef enum I2S_DataInterfaceUse_ {
+typedef enum {
 
     I2S_SD0_DISABLED       = 0x00U,   /*!<    SD0 is disabled */
     I2S_SD0_INPUT          = 0x01U,   /*!<    SD0 is an input */
@@ -768,7 +795,7 @@ typedef enum I2S_DataInterfaceUse_ {
  *
  *  The enum defines different settings to activate the expected channels.
  */
-typedef enum I2S_ChannelConfig_ {
+typedef enum {
 
     I2S_CHANNELS_NONE       = 0x00U,   /*!<   No channel activated */
     I2S_CHANNELS_MONO       = 0x01U,   /*!<   MONO: only channel one is activated */
@@ -794,7 +821,15 @@ typedef enum I2S_ChannelConfig_ {
  *
  *  @sa       I2S_Params_init()
  */
-typedef struct I2S_Params_ {
+typedef struct {
+
+    bool                  trueI2sFormat;
+    /*!< Activate "true I2S format".
+     *    false: Data are read/write on the data lines from the first SCK period of
+     *           the WS half-period to the last SCK edge of the WS half-period.
+     *    true:  Data are read/write on the data lines from the second SCK period of
+     *           the WS half-period to the first SCK edge of the next WS half-period.
+     *           If no padding is activated, this corresponds to the I2S standard. */
 
     bool                  invertWS;
     /*!< WS must be internally inverted when using I2S data format.
@@ -823,7 +858,7 @@ typedef struct I2S_Params_ {
     /*!< Number of SCK periods between the first WS edge and the MSB of the first audio channel data transferred during the phase.*/
 
     uint8_t               afterWordPadding;
-    /*!< Number of SCK periods between the first WS edge and the MSB of the first audio channel data transferred during the phase.*/
+    /*!< Number of SCK periods between the LSB of the an audio channel and the MSB of the next audio channel.*/
 
     uint8_t               bitsPerWord;
     /*!< Bits per sample (Word length): must be between 8 and 24 bits. */
@@ -908,7 +943,7 @@ typedef struct I2S_Params_ {
      *   All the data buffers used (both for input and output) must contain N*x bytes (with N an integer verifying N>0). */
 
     uint16_t              startUpDelay;
-    /*!< Time (in number of WS cycles) to wait before the first transfer. */
+    /*!< Number of WS periods to wait before the first transfer. */
 
     uint16_t              MCLKDivider;
     /*!< Select the frequency divider for MCLK signal. Final value of MCLK is 48MHz/MCLKDivider. Value must be selected between 2 and 1024. */
@@ -938,24 +973,6 @@ typedef struct I2S_Params_ {
  *  @sa     I2S_Params_init()
  */
 extern const I2S_Params I2S_defaultParams;
-
-/*! @brief  I2S Global configuration
- *
- *  The I2S_Config structure contains a set of pointers used to characterize
- *  the I2S driver implementation.
- *
- *  This structure needs to be defined before calling I2S_init() and it must
- *  not be changed thereafter.
- *
- *  @sa     I2S_init()
- */
-typedef struct I2S_Config_ {
-    /*! Pointer to a driver specific data object */
-    void                   *object;
-
-    /*! Pointer to a driver specific hardware attributes structure */
-    void          const    *hwAttrs;
-} I2S_Config;
 
 /*!
  *  @brief  Function to close a given I2S peripheral specified by the I2S
@@ -1010,8 +1027,9 @@ extern I2S_Handle I2S_open(uint_least8_t index, I2S_Params *params);
  *  Defaults values are:
  *  @code
  *  params.samplingFrequency    = 8000;
- *  params.isMemory24Bits       = I2S_MEMORY_LENGTH_16BITS;
- *  params.isMaster             = I2S_MASTER;
+ *  params.memorySlotLength     = I2S_MEMORY_LENGTH_16BITS;
+ *  params.moduleRole           = I2S_MASTER;
+ *  params.trueI2sFormat        = (bool)true;
  *  params.invertWS             = (bool)true;
  *  params.isMSBFirst           = (bool)true;
  *  params.isDMAUnused          = (bool)false;
@@ -1112,7 +1130,11 @@ extern void I2S_startClocks(I2S_Handle handle);
  *
  *  This function disable WS, SCK and MCLK clocks.
  *  This function must be executed only if no transaction is in progress.
+ *  This function is supposed to be executed in a Task context (NOT in a HWI or Callback context).
  *  This function is supposed to be executed both in slave and master mode.
+ *
+ *  @warning This function is supposed to be executed in a Task context
+ *  (NOT in a HWI or Callback context).
  *
  *  @param  [in]    handle  An I2S_Handle.
  *
@@ -1127,15 +1149,24 @@ extern void I2S_stopClocks(I2S_Handle handle);
  *  @brief Start read transactions.
  *
  *  This function starts reception of the transactions stored in the read-queue.
- *  and returns immediately. At the end of the transaction(s) the readCallback
+ *  and returns immediately. At the completion of each transaction the readCallback
  *  provided is executed.
- *  Clocks must be running before calling this function.
+ *
+ *  If the queue for read transactions becomes empty (i.e. the read Callback is
+ *  triggered with status #I2S_ALL_TRANSACTIONS_SUCCESS and the application has
+ *  not queued new transactions or defined a new first read-transaction to consider
+ *  using #I2S_setReadQueueHead()), the driver will stop the read interface on its
+ *  own in order to avoid the occurrence of errors (such as #I2S_PTR_READ_ERROR).
+ *
+ *  @pre First read-transaction to consider must be set and clocks must be running
+ *  before calling this function.
  *
  *  @param  [in]    handle  An I2S_Handle.
  *
  *  @return void
  *
- *  @sa I2S_stopRead()
+ *  @sa I2S_startClocks()
+ *  @sa I2S_setReadQueueHead()
  */
 extern void I2S_startRead(I2S_Handle handle);
 
@@ -1143,24 +1174,43 @@ extern void I2S_startRead(I2S_Handle handle);
  *  @brief Start write transactions.
  *
  *  This function starts transmission of the transactions stored in the write-queue
- *  and returns immediately. At the end of the transaction(s) the writeCallback
+ *  and returns immediately. At the completion of each transaction the write Callback
  *  provided is executed.
- *  Clocks must be running before calling this function.
+ *
+ *  If the queue for write transactions becomes empty (i.e. the write Callback is
+ *  triggered with status #I2S_ALL_TRANSACTIONS_SUCCESS and the application has not
+ *  queued new transactions or defined a new first write-transaction to consider using
+ *  #I2S_setWriteQueueHead()), the driver will stop the write interface on its own in
+ *  order to avoid the occurrence of errors (such as #I2S_PTR_WRITE_ERROR).
+ *
+ *  @pre First write-transaction to consider must be set and clocks must be running
+ *  before calling this function.
  *
  *  @param  [in]    handle  An I2S_Handle.
  *
  *  @return void
  *
- *  @sa I2S_startClocks
+ *  @sa I2S_startClocks()
+ *  @sa I2S_setWriteQueueHead()
  */
 extern void I2S_startWrite(I2S_Handle handle);
 
 /*!
  *  @brief Stop read transactions.
  *
- *  This function stops reception of the transactions stored in the read-queue.
- *  To avoid the apparition of errors, this function blocks while currently
- *  received sample is not completely done.
+ *  This function stops the reception of read transactions correctly so that
+ *  read operations can be safely restarted later.
+ *
+ *  The application can decide at any time to suspend the reception of data by calling
+ *  this function. In this case (and because the transaction queue is not empty) the
+ *  execution of #I2S_stopRead() is blocked until the current transaction is completed
+ *  (this ensures that the I2S read interface is correctly stopped). Therefore, this
+ *  function must be executed in a Task context (not in a HWI or Callback context).
+ *
+ *  After the transfers have been stopped (either by calling #I2S_stopRead() or because
+ *  the queue has been empty), the application can resume the transfers using the
+ *  function #I2S_startRead(). If the read-queue was empty application must beforehand
+ *  set the first read-transaction using #I2S_setReadQueueHead().
  *
  *  @param  [in]    handle  An I2S_Handle.
  *
@@ -1171,9 +1221,19 @@ extern void I2S_stopRead(I2S_Handle handle);
 /*!
  *  @brief Stop write transactions.
  *
- *  This function stops transmission of the transactions stored in the write-queue.
- *  To avoid the apparition of errors, this function blocks while currently
- *  transmitted sample is not completely done.
+ *  This function stops the transmission of write transactions correctly so that
+ *  writing operations can be safely restarted later.
+ *
+ *  The application can decide at any time to suspend the sending of data by calling
+ *  this function. In this case (and because the transaction queue is not empty) the
+ *  execution of #I2S_stopWrite() is blocked until the current transaction is completed
+ *  (this ensures that the I2S write interface is correctly stopped). Therefore, this
+ *  function must be executed in a Task context (not in a HWI or Callback context).
+ *
+ *  After the transfers have been stopped (either by calling #I2S_stopWrite() or because
+ *  the queue has been empty), the application can resume the transfers using the
+ *  function #I2S_startWrite(). If the write-queue was empty application must beforehand
+ *  set the first write-transaction using #I2S_setWriteQueueHead().
  *
  *  @param  [in]    handle  An I2S_Handle.
  *

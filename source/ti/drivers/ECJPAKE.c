@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -39,8 +39,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <ti/drivers/dpl/DebugP.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
 #include <ti/drivers/ECJPAKE.h>
+
+extern const ECJPAKE_Config ECJPAKE_config[];
+extern const uint_least8_t ECJPAKE_count;
 
 const ECJPAKE_Params ECJPAKE_defaultParams = {
     .returnBehavior = ECJPAKE_RETURN_BEHAVIOR_BLOCKING,
@@ -54,6 +58,16 @@ const ECJPAKE_Params ECJPAKE_defaultParams = {
  */
 void ECJPAKE_Params_init(ECJPAKE_Params *params){
     *params = ECJPAKE_defaultParams;
+}
+
+/*
+ *  ======== ECJPAKE_open ========
+ */
+ECJPAKE_Handle ECJPAKE_open(uint_least8_t index, ECJPAKE_Params *params) {
+    DebugP_assert(index < ECJPAKE_count);
+
+    ECJPAKE_Config *config = (ECJPAKE_Config*) &ECJPAKE_config[index];
+    return ECJPAKE_construct(config, params);
 }
 
 /*

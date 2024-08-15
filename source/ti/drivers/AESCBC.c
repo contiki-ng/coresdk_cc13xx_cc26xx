@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Texas Instruments Incorporated
+ * Copyright (c) 2018-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -42,6 +42,11 @@
 
 #include <ti/drivers/AESCBC.h>
 #include <ti/drivers/dpl/SemaphoreP.h>
+#include <ti/drivers/dpl/DebugP.h>
+
+/* Extern globals (board file) */
+extern const AESCBC_Config AESCBC_config[];
+extern const uint_least8_t AESCBC_count;
 
 const AESCBC_Params AESCBC_defaultParams = {
     .returnBehavior = AESCBC_RETURN_BEHAVIOR_BLOCKING,
@@ -62,4 +67,14 @@ void AESCBC_Params_init(AESCBC_Params *params){
  */
 void AESCBC_Operation_init(AESCBC_Operation *operationStruct) {
     memset(operationStruct, 0x00, sizeof(AESCBC_Operation));
+}
+
+/*
+ *  ======== AESCBC_open ========
+ */
+AESCBC_Handle AESCBC_open(uint_least8_t index, const AESCBC_Params *params) {
+    DebugP_assert(index < AESCBC_count);
+
+    AESCBC_Config *config = (AESCBC_Config*)&AESCBC_config[index];
+    return AESCBC_construct(config, params);
 }

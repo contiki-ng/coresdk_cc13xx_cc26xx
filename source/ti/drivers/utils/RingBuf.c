@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -70,6 +70,27 @@ int RingBuf_get(RingBuf_Handle object, unsigned char *data)
 }
 
 /*
+ *  ======== RingBuf_getConsume ========
+ */
+int RingBuf_getConsume(RingBuf_Handle object, size_t size)
+{
+    unsigned int key;
+
+    key = HwiP_disable();
+
+    if (object->count < size) {
+        size = object->count;
+    }
+    object->count -= size;
+    object->tail += size;
+    object->tail %= object->length;
+
+    HwiP_restore(key);
+
+    return (size);
+}
+
+/*
  *  ======== RingBuf_getCount ========
  */
 int RingBuf_getCount(RingBuf_Handle object)
@@ -78,19 +99,79 @@ int RingBuf_getCount(RingBuf_Handle object)
 }
 
 /*
- *  ======== RingBuf_isFull ========
- */
-bool RingBuf_isFull(RingBuf_Handle object)
-{
-    return (object->count == object->length);
-}
-
-/*
  *  ======== RingBuf_getMaxCount ========
  */
 int RingBuf_getMaxCount(RingBuf_Handle object)
 {
     return (object->maxCount);
+}
+
+/*
+ *  ======== RingBuf_getn ========
+ */
+int RingBuf_getn(RingBuf_Handle object, unsigned char *data, size_t n)
+{
+    unsigned int key;
+    size_t       removed = 0;
+
+    key = HwiP_disable();
+    if (n > object->count) {
+        n = object->count;
+    }
+    while (n) {
+        *data++ = object->buffer[object->tail++];
+        object->tail %= object->length;
+        --object->count;
+        --n;
+        ++removed;
+    }
+    HwiP_restore(key);
+
+    return (removed);
+}
+
+/*
+ *  ======== RingBuf_getPointer ========
+ */
+int RingBuf_getPointer(RingBuf_Handle object, unsigned char **data)
+{
+    size_t       result;
+    unsigned int key;
+
+    key = HwiP_disable();
+
+    result = object->length - object->tail;
+    if (object->count < result) {
+        result = object->count;
+    }
+    *data = object->buffer + object->tail;
+
+    HwiP_restore(key);
+
+    return (result);
+}
+
+/*
+ *  ======== RingBuf_flush ========
+ */
+void RingBuf_flush(RingBuf_Handle object)
+{
+    uintptr_t key;
+    size_t    maxCount;
+
+    key = HwiP_disable();
+    maxCount = object->maxCount;
+    RingBuf_construct(object, object->buffer, object->length);
+    object->maxCount = maxCount;
+    HwiP_restore(key);
+}
+
+/*
+ *  ======== RingBuf_isFull ========
+ */
+bool RingBuf_isFull(RingBuf_Handle object)
+{
+    return (object->count == object->length);
 }
 
 /*
@@ -139,4 +220,80 @@ int RingBuf_put(RingBuf_Handle object, unsigned char data)
     HwiP_restore(key);
 
     return (object->count);
+}
+
+/*
+ *  ======== RingBuf_putAdvance ========
+ */
+int RingBuf_putAdvance(RingBuf_Handle object, size_t size)
+{
+    unsigned int key;
+
+    key = HwiP_disable();
+
+    if (RingBuf_space(object) < size) {
+        size = RingBuf_space(object);
+    }
+    object->count += size;
+    object->head += size;
+    object->head %= object->length;
+
+    object->maxCount = (object->count > object->maxCount) ?
+            object->count : object->maxCount;
+
+    HwiP_restore(key);
+
+    return (size);
+}
+
+/*
+ *  ======== RingBuf_putn ========
+ */
+int RingBuf_putn(RingBuf_Handle object, unsigned char *data, size_t n)
+{
+    unsigned int key;
+    size_t       next;
+    size_t       added = 0;
+
+    key = HwiP_disable();
+    if (n > RingBuf_space(object)) {
+        n = RingBuf_space(object);
+    }
+    while (n) {
+        next = (object->head + 1) % object->length;
+        object->buffer[next] = *data++;
+        object->head = next;
+        ++object->count;
+        --n;
+        ++added;
+    }
+    if (object->maxCount < object->count) {
+        object->maxCount = object->count;
+    }
+    HwiP_restore(key);
+
+    return (added);
+}
+
+/*
+ *  ======== RingBuf_putPointer ========
+ */
+int RingBuf_putPointer(RingBuf_Handle object, unsigned char **data)
+{
+    size_t       result;
+    size_t       next;
+    unsigned int key;
+
+    key = HwiP_disable();
+
+    next = (object->head + 1) % object->length;
+    result = object->length - next;
+    if (RingBuf_space(object) < result) {
+        result = RingBuf_space(object);
+    }
+    *data = object->buffer + next;
+
+    HwiP_restore(key);
+
+    return (result);
 }

@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       udma.h
-*  Revised:        2017-05-23 12:08:52 +0200 (Tue, 23 May 2017)
-*  Revision:       49048
+*  Revised:        2020-08-19 12:18:33 +0200 (Wed, 19 Aug 2020)
+*  Revision:       58172
 *
 *  Description:    Defines and prototypes for the uDMA controller.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without
@@ -294,6 +294,8 @@ tDMAControlTable;
 #define UDMA_CHAN_UART0_TX      2   // UART0 RX Data
 #define UDMA_CHAN_SSI0_RX       3   // SSI0 RX Data
 #define UDMA_CHAN_SSI0_TX       4   // SSI0 RX Data
+#define UDMA_CHAN_UART1_RX      5   // UART1 RX Data
+#define UDMA_CHAN_UART1_TX      6   // UART1 Tx Data
 #define UDMA_CHAN_AUX_ADC       7   // AUX ADC event
 #define UDMA_CHAN_AUX_SW        8   // AUX Software event
 #define UDMA_CHAN_TIMER0_A      9   // Timer0 A event

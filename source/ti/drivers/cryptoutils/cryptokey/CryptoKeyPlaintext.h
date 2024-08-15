@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -43,10 +43,10 @@
  *
  * # Usage #
  *
- * Plaintext keys are the simplest of the CryptoKeys. All they do is store the length
- * of and a pointer to the keying material. Their use is hence simple as well. After
- * calling the initialization function, the CryptoKey may be used in any of the
- * crypto operation APIs that take a CryptoKey as an input.
+ * Plaintext keys are the simplest of the CryptoKeys. All they do is store the
+ * length of and a pointer to the keying material. Their use is hence simple as
+ * well. After calling the initialization function, the CryptoKey may be used in
+ * any of the crypto operation APIs that take a CryptoKey as an input.
  *
  * @code
  *
@@ -62,8 +62,8 @@
  *
  */
 
-#ifndef ti_drivers_cryptoutils_cyptokey_CryptoKeyPlaintext__include
-#define ti_drivers_cryptoutils_cyptokey_CryptoKeyPlaintext__include
+#ifndef ti_drivers_cryptoutils_cryptokey_CryptoKeyPlaintext__include
+#define ti_drivers_cryptoutils_cryptokey_CryptoKeyPlaintext__include
 
 #include <stddef.h>
 #include <stdint.h>
@@ -78,7 +78,8 @@ extern "C" {
 /*!
  *  @brief Initializes a CryptoKey type
  *
- *  @param [in]     keyHandle   Pointer to a CryptoKey which will be initialized to type CryptoKey_PLAINTEXT
+ *  @param [in]     keyHandle   Pointer to a CryptoKey which will be initialized
+ *                              to type CryptoKey_PLAINTEXT
  *                              and ready for use
  *  @param [in]     key         Pointer to keying material
  *
@@ -86,22 +87,56 @@ extern "C" {
  *
  *  @return Returns a status code from CryptoKey.h
  */
-int_fast16_t CryptoKeyPlaintext_initKey(CryptoKey *keyHandle, uint8_t *key, size_t keyLength);
+int_fast16_t CryptoKeyPlaintext_initKey(CryptoKey *keyHandle,
+                                        uint8_t *key,
+                                        size_t keyLength);
 
 
 /*!
  *  @brief Initializes an empty plaintext CryptoKey type
  *
- *  @param [in]     keyHandle       Pointer to a CryptoKey which will be initialized to type
+ *  @param [in]     keyHandle       Pointer to a CryptoKey which will be
+ *                                  initialized to type
  *                                  CryptoKey_BLANK_PLAINTEXT
  *
- *  @param [in]     keyLocation     Pointer to location where plaintext keying material can be stored
+ *  @param [in]     keyLocation     Pointer to location where plaintext keying
+ *                                  material can be stored
  *
  *  @param [in]     keyLength       Length of keying material, in bytes
  *
  *  @return Returns a status code from CryptoKey.h
  */
-int_fast16_t CryptoKeyPlaintext_initBlankKey(CryptoKey *keyHandle, uint8_t *keyLocation, size_t keyLength);
+int_fast16_t CryptoKeyPlaintext_initBlankKey(CryptoKey *keyHandle,
+                                             uint8_t *keyLocation,
+                                             size_t keyLength);
+
+/*!
+ * @brief Sets the CryptoKey keyMaterial pointer
+ *
+ *  Updates the key location for a plaintext CryptoKey.
+ *  Does not modify data at the pointer location.
+ *
+ *  @param [out]     keyHandle   Pointer to a plaintext CryptoKey who's key
+ *                               data pointer will be modified
+ *
+ *  @param [in]     location    Pointer to key data location
+ *
+ *  @return Returns a status code from CryptoKey.h
+ */
+int_fast16_t CryptoKeyPlaintext_setKeyLocation(CryptoKey *keyHandle,
+                                               uint8_t *location);
+
+/*!
+ * @brief Gets the CryptoKey keyMaterial pointer
+ *
+ *  @param [in]     keyHandle   Pointer to an initialized plaintext CryptoKey
+ *
+ *  @param [out]    location    Pointer to key data location
+ *
+ *  @return Returns a status code from CryptoKey.h
+ */
+int_fast16_t CryptoKeyPlaintext_getKeyLocation(CryptoKey *keyHandle,
+                                               uint8_t **location);
 
 /*!
  *  @brief Gets the length of a plaintext key
@@ -112,36 +147,23 @@ int_fast16_t CryptoKeyPlaintext_initBlankKey(CryptoKey *keyHandle, uint8_t *keyL
  *
  *  @return Returns a status code from CryptoKey.h
  */
-int_fast16_t CryptoKeyPlaintext_getKeyLength(CryptoKey *keyHandle, size_t *length);
-
+int_fast16_t CryptoKeyPlaintext_getKeyLength(CryptoKey *keyHandle,
+                                             size_t *length);
 /*!
- * @brief Sets the CryptoKey keyMaterial pointer
+ *  @brief Sets the length of a plaintext key
  *
- *  Updates the key location for a plaintext CryptoKey.
- *  Does not modify data at the pointer location.
+ *  @param [out]     keyHandle   Pointer to a CryptoKey
  *
- *  @param [in]     keyHandle   Pointer to a plaintext CryptoKey who's key data pointer will be modified
- *
- *  @param [in]     location    Pointer to key data location
+ *  @param [in]      length      Length value in bytes to update
+ *                               @c keyHandle with
  *
  *  @return Returns a status code from CryptoKey.h
  */
-int_fast16_t CryptoKeyPlaintext_setKeyLocation(CryptoKey *keyHandle, uint8_t *location);
-
-
-/*!
- *  @brief Gets the length of a plaintext key
- *
- *  @param [in]      keyHandle   Pointer to a CryptoKey
- *
- *  @param [out]     length      Length value will be updated to CryptoKey length, in bytes
- *
- *  @return Returns a status code from CryptoKey.h
- */
-int_fast16_t CryptoKeyPlaintext_getKeyLength(CryptoKey *keyHandle, size_t *length);
+int_fast16_t CryptoKeyPlaintext_setKeyLength(CryptoKey *keyHandle,
+                                             size_t length);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* ti_drivers_cryptoutils_cyptoKey_CryptoKeyPlaintext__include */
+#endif /* ti_drivers_cryptoutils_cryptokey_CryptoKeyPlaintext__include */

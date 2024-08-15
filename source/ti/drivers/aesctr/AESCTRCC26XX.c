@@ -61,14 +61,10 @@ static int_fast16_t AESCTR_waitForResult(AESCTR_Handle handle);
 static void AESCTR_cleanup(AESCTR_Handle handle);
 
 /* Non-public functions required by other drivers */
-bool AESCTR_acquireLock(AESCTR_Handle handle);
+bool AESCTR_acquireLock(AESCTR_Handle handle, uint32_t timeout);
 void AESCTR_releaseLock(AESCTR_Handle handle);
 void AESCTR_enableThreadSafety(AESCTR_Handle handle);
 void AESCTR_disableThreadSafety(AESCTR_Handle handle);
-
-/* Extern globals */
-extern const AESCTR_Config AESCTR_config[];
-extern const uint_least8_t AESCTR_count;
 
 /* Static globals */
 static bool isInitialized = false;
@@ -164,15 +160,13 @@ void AESCTR_init(void) {
 /*
  *  ======== AESCTR_open ========
  */
-AESCTR_Handle AESCTR_open(uint_least8_t index, const AESCTR_Params *params) {
+AESCTR_Handle AESCTR_construct(AESCTR_Config *config, const AESCTR_Params *params) {
     AESCTR_Handle               handle;
     AESCTRCC26XX_Object        *object;
     uint_fast8_t                key;
 
-    handle = (AESCTR_Config*)&AESCTR_config[index];
+    handle = (AESCTR_Handle)config;
     object = handle->object;
-
-    DebugP_assert(index < AESCTR_count);
 
     key = HwiP_disable();
 
@@ -423,10 +417,8 @@ int_fast16_t AESCTR_cancelOperation(AESCTR_Handle handle) {
     return AESCTR_STATUS_SUCCESS;
 }
 
-bool AESCTR_acquireLock(AESCTR_Handle handle) {
-    AESCTRCC26XX_Object *object = handle->object;
-
-    return CryptoResourceCC26XX_acquireLock(object->semaphoreTimeout);
+bool AESCTR_acquireLock(AESCTR_Handle handle, uint32_t timeout) {
+    return CryptoResourceCC26XX_acquireLock(timeout);
 }
 
 void AESCTR_releaseLock(AESCTR_Handle handle) {

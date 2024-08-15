@@ -1,11 +1,11 @@
 /******************************************************************************
 *  Filename:       vims.c
-*  Revised:        2017-06-05 12:13:49 +0200 (Mon, 05 Jun 2017)
-*  Revision:       49096
+*  Revised:        2020-08-19 16:27:16 +0200 (Wed, 19 Aug 2020)
+*  Revision:       58177
 *
 *  Description:    Driver for the VIMS.
 *
-*  Copyright (c) 2015 - 2017, Texas Instruments Incorporated
+*  Copyright (c) 2015 - 2020, Texas Instruments Incorporated
 *  All rights reserved.
 *
 *  Redistribution and use in source and binary forms, with or without

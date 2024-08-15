@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,12 +41,14 @@
  *  @endcode
  *
  * # Overview #
- * The UDMACC26XX driver currently only supports being used by the SPICC26XXDMA.h. module.
+ * The UDMACC26XX driver currently only supports internal use by the drivers
+ * that use the uDMA peripheral (e.g., SPICC26XXDMA).
  * In other words, the application should never call any of the functions in this file.
  *
  * # General Behavior #
- * This driver is used implicitly by the SPICC26XXDMA.h driver so user should not
- * have to interface to this driver from the application.
+ * This driver is used implicitly by other drivers (e.g., the SPICC26XXDMA
+ * driver) so users should not have to interface to this driver from the
+ * application.
  * The uDMA HW makes use of a control table in RAM which must be 1024 bytes aligned.
  * The default base address of this control table is 0x20000400, however this
  * can be changed by simply changing UDMACC26XX_CONFIG_BASE.
@@ -56,12 +58,10 @@
  * only 2*16=32 bytes of RAM is used. Please see [Use cases] (@ref USE_CASE) for example.
  *
  * # Error handling #
- * Error handling is handled by the overlying driver which uses the DMA, currently
- * this is only SPICC26XXDMA.h
+ * Error handling is handled by the overlying driver which uses the DMA.
  *
  * # Power management #
- * Power management is handled by the overlying driver which uses the DMA, currently
- * this is only SPICC26XXDMA.h
+ * Power management is handled by the overlying driver which uses the DMA.
  *
  * # Supported functions #
  * Note that these functions should never be called from the application, they
@@ -79,7 +79,7 @@
  * No known limitations
  *
  * # Use Cases @anchor USE_CASE #
- * The DMA is only used together with the SPICC26XXDMA.h driver, so the application
+ * The DMA is only used internally by other drivers, so the application
  * should never call any of the functions in this driver directly.
  * The only thing that the application is allowed to modify is the base address
  * of the DMA control table in RAM. (Default value is 0x2000_0400)
@@ -96,24 +96,11 @@
  * [0x2000_0430-0x2000_044F] = SSI0 RX/TX DMA channels\n
  * [0x2000_0500-0x2000_051F] = SSI1 RX/TX DMA channels
  *
- * # Instrumentation #
- * The SPI driver interface produces log statements if instrumentation is
- * enabled.
- *
- * Diagnostics Mask | Log details |
- * ---------------- | ----------- |
- * Diags_USER1      | basic SPI operations performed |
- * Diags_USER2      | detailed SPI operations performed |
- *
  * ============================================================================
  */
 
 #ifndef ti_drivers_UDMACC26XX__include
 #define ti_drivers_UDMACC26XX__include
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -124,6 +111,10 @@ extern "C" {
 #include <ti/devices/DeviceFamily.h>
 #include DeviceFamily_constructPath(inc/hw_types.h)
 #include DeviceFamily_constructPath(driverlib/udma.h)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  *  @addtogroup DMA_STATUS
@@ -154,7 +145,9 @@ extern "C" {
 /** @}*/
 
 /*! Base address for the DMA control table, must be 1024 bytes aligned */
-#if !defined(UDMACC26XX_CONFIG_BASE) && (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2)
+#if !defined(UDMACC26XX_CONFIG_BASE) && \
+    (DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X2_CC26X2 || \
+    DeviceFamily_PARENT == DeviceFamily_PARENT_CC13X1_CC26X1)
     #define UDMACC26XX_CONFIG_BASE 0x20001800
 #elif !defined(UDMACC26XX_CONFIG_BASE)
     #define UDMACC26XX_CONFIG_BASE 0x20000400
@@ -169,11 +162,10 @@ extern "C" {
 #if defined(__IAR_SYSTEMS_ICC__)
 #define ALLOCATE_CONTROL_TABLE_ENTRY(ENTRY_NAME, CHANNEL_INDEX) \
 __no_init static volatile tDMAControlTable ENTRY_NAME @ UDMACC26XX_CONFIG_BASE + CHANNEL_INDEX * sizeof(tDMAControlTable)
-#elif defined(__TI_COMPILER_VERSION__)
+#elif defined(__TI_COMPILER_VERSION__) || defined(__clang__)
 #define ALLOCATE_CONTROL_TABLE_ENTRY(ENTRY_NAME, CHANNEL_INDEX) \
-PRAGMA(LOCATION( ENTRY_NAME , UDMACC26XX_CONFIG_BASE + CHANNEL_INDEX * sizeof(tDMAControlTable) );)\
-static volatile tDMAControlTable ENTRY_NAME
-#define PRAGMA(x) _Pragma(#x)
+static volatile tDMAControlTable ENTRY_NAME __attribute__((retain, location(\
+    UDMACC26XX_CONFIG_BASE + CHANNEL_INDEX * sizeof(tDMAControlTable))))
 #elif defined(__GNUC__)
 #define ALLOCATE_CONTROL_TABLE_ENTRY(ENTRY_NAME, CHANNEL_INDEX) \
     extern int UDMACC26XX_ ## ENTRY_NAME ## _is_placed; __attribute__ ((section("."#ENTRY_NAME))) static volatile tDMAControlTable ENTRY_NAME = {&UDMACC26XX_ ## ENTRY_NAME ## _is_placed}
@@ -189,7 +181,7 @@ static volatile tDMAControlTable ENTRY_NAME
 /*!
  *  @brief  UDMACC26XX object
  */
-typedef struct UDMACC26XX_Object {
+typedef struct {
     bool             isOpen;           /*!< Flag for open/close status */
     HwiP_Struct hwi;  /*!< Embedded Hwi Object */
 } UDMACC26XX_Object;
@@ -197,7 +189,7 @@ typedef struct UDMACC26XX_Object {
 /*!
  *  @brief  UDMACC26XX hardware attributes
  */
-typedef struct UDMACC26XX_HWAttrs {
+typedef struct {
     uint32_t        baseAddr;    /*!< Base adddress for UDMACC26XX */
     PowerCC26XX_Resource  powerMngrId; /*!< UDMACC26XX Peripheral's power manager ID */
     uint8_t         intNum;      /*!< UDMACC26XX error interrupt number */
@@ -228,7 +220,7 @@ typedef struct UDMACC26XX_HWAttrs {
 /*!
  *  @brief      UDMACC26XX Global configuration
  */
-typedef struct UDMACC26XX_Config {
+typedef struct {
     void              *object;            /*!< Pointer to UDMACC26XX object */
     void const        *hwAttrs;           /*!< Pointer to hardware attribute */
 } UDMACC26XX_Config;
@@ -236,7 +228,7 @@ typedef struct UDMACC26XX_Config {
 /*!
  *  @brief      A handle that is returned from a UDMACC26XX_open() call.
  */
-typedef struct UDMACC26XX_Config      *UDMACC26XX_Handle;
+typedef UDMACC26XX_Config *UDMACC26XX_Handle;
 
 /* Extern'd hwiIntFxn */
 extern void UDMACC26XX_hwiIntFxn(uintptr_t callbacks);
@@ -288,7 +280,7 @@ extern UDMACC26XX_Handle UDMACC26XX_open();
  *  @pre    UDMACC26XX_open() has to be called first.
  *          Calling context: Hwi, Swi, Task
  *
- *  @param  handle  A SPI_Handle returned from SPI_open()
+ *  @param  handle  A UDMACC26XX_Handle returned from UDMACC26XX_open()
  *
  *  @param  params  A 32-bit bitmask of the channels to enable.
  *
@@ -315,13 +307,13 @@ __STATIC_INLINE void UDMACC26XX_channelEnable(UDMACC26XX_Handle handle, uint32_t
  *  @pre    UDMACC26XX_open() has to be called first.
  *          Calling context: Hwi, Swi, Task
  *
- *  @param  handle  A SPI_Handle returned from SPI_open()
+ *  @param  handle  A UDMACC26XX_Handle returned from UDMACC26XX_open()
  *
  *  @param  params  A 32-bit bitmask of the channels to check for if are done.
  *
  *  @return True if the channels are done, false otherwise.
  *
- *  @sa     SPICC26XXDMA_open, UDMACC26XX_channelDisable
+ *  @sa     UDMACC26XX_open, UDMACC26XX_channelDisable
  */
 __STATIC_INLINE bool UDMACC26XX_channelDone(UDMACC26XX_Handle handle, uint32_t channelBitMask)
 {
@@ -343,7 +335,7 @@ __STATIC_INLINE bool UDMACC26XX_channelDone(UDMACC26XX_Handle handle, uint32_t c
  *  @pre    UDMACC26XX_open() has to be called first.
  *          Calling context: Hwi, Swi, Task
  *
- *  @param  handle  A SPI_Handle returned from SPI_open()
+ *  @param  handle  A UDMACC26XX_Handle returned from UDMACC26XX_open()
  *
  *  @param  params  A 32-bit bitmask of the channels to check for if are done.
  *
@@ -371,7 +363,7 @@ __STATIC_INLINE void UDMACC26XX_clearInterrupt(UDMACC26XX_Handle handle, uint32_
  *  @pre    UDMACC26XX_open() has to be called first.
  *          Calling context: Hwi, Swi, Task
  *
- *  @param  handle  A SPI_Handle returned from SPI_open()
+ *  @param  handle  A UDMACC26XX_Handle returned from UDMACC26XX_open()
  *
  *  @param  params  A 32-bit bitmask of the channels to disable.
  *
@@ -381,7 +373,10 @@ __STATIC_INLINE void UDMACC26XX_clearInterrupt(UDMACC26XX_Handle handle, uint32_
  */
 __STATIC_INLINE void UDMACC26XX_channelDisable(UDMACC26XX_Handle handle, uint32_t channelBitMask)
 {
-    UDMACC26XX_HWAttrs const *hwAttrs = handle->hwAttrs;
+    UDMACC26XX_HWAttrs const *hwAttrs;
+
+    /* Get the pointer to the hwAttrs */
+    hwAttrs = (UDMACC26XX_HWAttrs *)(handle->hwAttrs);
 
     HWREG(hwAttrs->baseAddr + UDMA_O_CLEARCHANNELEN) = channelBitMask;
 }
@@ -409,7 +404,10 @@ __STATIC_INLINE void UDMACC26XX_channelDisable(UDMACC26XX_Handle handle, uint32_
 __STATIC_INLINE void UDMACC26XX_disableAttribute(UDMACC26XX_Handle handle,
     uint32_t channelNum, uint32_t attr)
 {
-    UDMACC26XX_HWAttrs const *hwAttrs = (UDMACC26XX_HWAttrs *) handle->hwAttrs;
+    UDMACC26XX_HWAttrs const *hwAttrs;
+
+    /* Get the pointer to the hwAttrs */
+    hwAttrs = (UDMACC26XX_HWAttrs *)(handle->hwAttrs);
 
     uDMAChannelAttributeDisable(hwAttrs->baseAddr, channelNum, attr);
 }
@@ -423,11 +421,11 @@ __STATIC_INLINE void UDMACC26XX_disableAttribute(UDMACC26XX_Handle handle,
  *  @pre    UDMACC26XX_open() has to be called first.
  *          Calling context: Task
  *
- *  @param  handle  A SPI_Handle returned from SPI_open()
+ *  @param  handle  A UDMACC26XX_Handle returned from UDMACC26XX_open()
  *
  *  @return none
  *
- *  @sa     SPICC26XXDMA_open
+ *  @sa     UDMACC26XX_open
  */
 extern void UDMACC26XX_close(UDMACC26XX_Handle handle);
 

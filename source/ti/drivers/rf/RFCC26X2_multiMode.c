@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2015-2019, Texas Instruments Incorporated
+* Copyright (c) 2015-2020, Texas Instruments Incorporated
 * All rights reserved.
 *
 * Redistribution and use in source and binary forms, with or without
@@ -38,6 +38,7 @@
 
 #include <ti/drivers/Power.h>
 #include <ti/drivers/power/PowerCC26X2.h>
+#include <ti/drivers/Temperature.h>
 #include <ti/drivers/rf/RF.h>
 #include <ti/drivers/utils/List.h>
 
@@ -55,8 +56,8 @@
 #include DeviceFamily_constructPath(driverlib/adi.h)
 #include DeviceFamily_constructPath(driverlib/aon_rtc.h)
 #include DeviceFamily_constructPath(driverlib/chipinfo.h)
-#include DeviceFamily_constructPath(driverlib/aon_batmon.h)
 #include DeviceFamily_constructPath(driverlib/osc.h)
+#include DeviceFamily_constructPath(driverlib/ccfgread.h)
 
 #if defined(__IAR_SYSTEMS_ICC__)
 #pragma diag_remark=Pa082
@@ -229,6 +230,8 @@ typedef enum RF_ScheduleCmdStatus_ {
 #define RF_HPOSC_OVERRIDE_MASK                 0xFFFF
 /* Common defines for override handling*/
 #define RF_OVERRIDE_SEARCH_DEPTH               80
+/* Define for HPOSC temperature limits */
+#define RF_TEMP_LIMIT_3_DEGREES_CELSIUS        0x3
 
 /*-------------- Structures and definitions ---------------*/
 
@@ -240,7 +243,7 @@ typedef struct RF_RatChannel_s RF_RatChannel;
 
 /* Rat channel configuration. */
 struct RF_RatChannel_s {
-  RF_Handle      pClient;        /* Pointer to current client. NULL means the channel is free. */
+  RF_Handle      pClient;        /* Pointer to client owning the channel. NULL means the channel is free. */
   RF_RatCallback pCb;            /* Callback pointer of the channel. */
   RF_RatMode     mode;           /* Mode of this RAT channel: RF_RatModeCompare, etc. */
   RF_RatHandle   handle;         /* Channel number: 0,1,2. */
@@ -363,6 +366,7 @@ static const RF_Params RF_defaultParams = {
     .nPhySwitchingDurationMargin = RF_DEFAULT_PHY_SWITCHING_MARGIN,
     .pClientEventCb              = NULL,
     .nClientEventMask            = 0,
+    .nID                         = 0,
 };
 
 /*-------------- Global variables ---------------*/
@@ -402,15 +406,25 @@ static uint32_t                 RF_errTolValInUs;     /* max allowed error betwe
 /* Counter of radio clients */
 static uint8_t                  RF_numClients;
 
+/* Current HPOSC frequency offset */
+static int32_t                  RF_currentHposcFreqOffset;
+
+/* Temperature notify object used by HPOSC device */
+static Temperature_NotifyObj    RF_hposcRfCompNotifyObj;
+
+/* Common system-level temperature based synth compensation  */
+static void (*pfnUpdateHposcOverride)(uint32_t *pRegOverride) = NULL;
+static int_fast16_t (*pfnTemperatureUnregisterNotify)(Temperature_NotifyObj *notifyObject) = NULL;
+
 /*-------------- Externs ---------------*/
 
 /* Hardware attribute structure populated in board file. */
 extern const RFCC26XX_HWAttrsV2 RFCC26XX_hwAttrs;
 
 /* Software policy set in the board file and implements the distributed scheduling algorithm. */
-__attribute__((weak)) const RFCC26XX_SchedulerPolicy RFCC26XX_schedulerPolicy = {
+__attribute__((weak)) RFCC26XX_SchedulerPolicy RFCC26XX_schedulerPolicy = {
     .submitHook   = RF_defaultSubmitPolicy,
-    .conflictHook = RF_defaultConflictPolicy
+    .executeHook  = RF_defaultExecutionPolicy
 };
 
 /*-------------- Booleans ---------------*/
@@ -501,6 +515,10 @@ static void             RF_detachOverrides(uint32_t* baseOverride, uint32_t* new
 
 /* HPOSC management */
 static void             RF_updateHpOscOverride(uint32_t *pRegOverride);
+static void             RF_hposcRfCompensateFxn(int16_t currentTemperature,
+                                                int16_t thresholdTemperature,
+                                                uintptr_t clientArg,
+                                                Temperature_NotifyObj *notifyObject);
 
 /*-------------- Command queue internal functions ---------------*/
 
@@ -762,10 +780,10 @@ static bool RF_cmdDispatchTime(uint32_t* dispatchTimeClockTicks, bool conflict, 
 
             /* Calculate the remained time until this absolute event. The calculation takes
                into account the minimum power cycle time. */
-            *dispatchTimeClockTicks = RF_calculateDeltaTimeUs(pCmd->pOp->startTime, nTotalDuration);
+            *dispatchTimeClockTicks = RF_calculateDeltaTimeUs(pCmd->startTime, nTotalDuration);
 
             /* Scale the value to clock ticks*/
-            *dispatchTimeClockTicks /= ClockP_tickPeriod;
+            *dispatchTimeClockTicks /= ClockP_getSystemTickPeriod();
         }
         else
         {
@@ -949,11 +967,16 @@ static bool RF_ratReleaseChannels(void)
         /* If the next event is sufficiently far into the future. */
         if (!validTime || (validTime && dispatchTimeClockTicks))
         {
-            /* Suspend all RAT channels. */
-            RF_ratSuspendChannels();
+            /* Avoid powering down the radio if there are callbacks to be served. The
+               SWI will try to access the RAT timer, which need to be powered. */
+            if (RF_ratModule.pendingInt == 0U)
+            {
+                /* Suspend all RAT channels. */
+                RF_ratSuspendChannels();
 
-            /* RAT channels were suspended. */
-            return(true);
+                /* RAT channels were suspended. */
+                return(true);
+            }
         }
     }
 
@@ -1002,7 +1025,8 @@ static bool RF_ratDispatchTime(uint32_t* dispatchTimeClockTicks)
             else
             {
                 /* Decode the compareTime field. */
-                uint32_t compareTime = ((rfc_CMD_SET_RAT_CMP_t*)&ratCh->chCmd)->compareTime;
+                rfc_CMD_SET_RAT_CMP_t* cmd = (rfc_CMD_SET_RAT_CMP_t *)&ratCh->chCmd;
+                uint32_t compareTime = cmd->compareTime;
 
                 /* Calculate the remained time until this RAT event. The calculation takes
                    into account the minimum power cycle time. */
@@ -1012,7 +1036,7 @@ static bool RF_ratDispatchTime(uint32_t* dispatchTimeClockTicks)
                                                                (RF_RAT_COMPENSATION_TIME_US * RF_ratModule.numActiveChannels));
 
                 /* Scale the value to clock ticks. */
-                uint32_t deltaTimeClockTicks = deltaTimeUs / ClockP_tickPeriod;
+                uint32_t deltaTimeClockTicks = deltaTimeUs / ClockP_getSystemTickPeriod();
 
                 /* If this is the closest RAT event, update the timer. */
                 if (deltaTimeClockTicks < (*dispatchTimeClockTicks))
@@ -1342,7 +1366,7 @@ static uint8_t RF_wakeupNotification(uint8_t eventType, uint32_t *eventArg, uint
     if ((eventType == PowerCC26XX_AWAKE_STANDBY) && (ClockP_isActive(&RF_clkPowerUpObj)))
     {
         /* Calculate time (in us) until next trigger (assume next trigger is max ~70 min away) */
-        uint32_t timeInUsUntilNextTrig = ClockP_tickPeriod * ClockP_getTimeout(&RF_clkPowerUpObj);
+        uint32_t timeInUsUntilNextTrig = ClockP_getSystemTickPeriod() * ClockP_getTimeout(&RF_clkPowerUpObj);
 
         /* Check if the next trig time is close enough to the actual power up */
         if (timeInUsUntilNextTrig < RF_WAKEUP_DETECTION_WINDOW_IN_US)
@@ -1468,11 +1492,11 @@ static bool RF_verifyGap(RF_Cmd* newCmd, RF_Cmd* prevCmd, RF_Cmd* nextCmd)
 
     /*  Step 1 - The newCmd must have an endTime in order to be placed anywhere
                  else than the end. Or if there are no commands behind. */
-    if ((newCmd) && (insertNewCmdBeforeNext || (newCmd->endTime != RF_SCH_CMD_ENDTIME_IGNORE)))
+    if ((newCmd) && (insertNewCmdBeforeNext || (newCmd->endType != RF_EndNotSpecified)))
     {
         /* If there is a prevCmd and it have an endTime, we could potentially
            put the new command behind it. */
-        if ((prevCmd) && (prevCmd->endTime != RF_SCH_CMD_ENDTIME_IGNORE))
+        if ((prevCmd) && (prevCmd->endType != RF_EndNotSpecified))
         {
             /* Take the start time of the command located later in the timeline. */
             deltaInUs = (int32_t)RF_convertRatTicksToUs(newCmd->startTime);
@@ -1647,11 +1671,13 @@ RF_ScheduleStatus RF_defaultSubmitPolicy(RF_Cmd* pCmdNew, RF_Cmd* pCmdBg, RF_Cmd
  *          pCmdFg               - Running foreground command.
  *          pPendQueue           - Pointer to the head structure of pend queue.
  *          pDoneQueue           - Pointer to the head structure of done queue.
+ *          bConflict            - Whether the incoming command conflicts with ongoing activity.
+ *          conflictCmd          - Pointer to the command that conflicts with ongoing.
  *  Return: RF_ScheduleStatus    - Identifies the success or failure of enquing.
  */
-RF_Conflict RF_defaultConflictPolicy(RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue)
+RF_ExecuteAction RF_defaultExecutionPolicy(RF_Cmd* pCmdBg, RF_Cmd* pCmdFg, List_List* pPendQueue, List_List* pDoneQueue, bool bConflict, RF_Cmd* conflictCmd)
 {
-    return(RF_ConflictNone);
+    return(RF_ExecuteActionNone);
 }
 
 /*
@@ -1981,7 +2007,6 @@ static void RF_initRadioSetup(RF_Handle handle)
     uint32_t* pRegOverrideTx20     = NULL;
     bool      tx20FeatureAvailable = false;
     bool      update               = handle->clientConfig.bUpdateSetup;
-    bool      hposcAvailable       = OSC_IsHPOSCEnabled();
 
     /* Decode the setup command. */
     RF_RadioSetup* radioSetup = handle->clientConfig.pRadioSetup;
@@ -2043,10 +2068,10 @@ static void RF_initRadioSetup(RF_Handle handle)
         RF_detachOverrides(pRegOverride, pRegOverrideTx20);
     }
 
-    /* Compensate HPOSC drift if HPOSC functionality is enabled. */
-    if(hposcAvailable==true)
+    /* Perform Software Temperature Controlled Crystal Oscillator compensation (SW TCXO), if enabled */
+    if(pfnUpdateHposcOverride != NULL)
     {
-        RF_updateHpOscOverride(pRegOverride);
+        pfnUpdateHposcOverride(pRegOverride);
     }
 }
 
@@ -2058,80 +2083,38 @@ static void RF_initRadioSetup(RF_Handle handle)
  */
 static void RF_dispatchNextCmd(void)
 {
-    /* First element in the pend queue */
-    bool doDispatchNow = false;
-    RF_Cmd* pNextCmd   = (RF_Cmd*)List_head(&RF_cmdQ.pPend);
+    bool doDispatchNow   = false;
+    RF_Cmd* pConflictCmd = NULL;
+    RF_Cmd* pNextCmd     = (RF_Cmd*)List_head(&RF_cmdQ.pPend);
+    bool validTime = false;
+    uint32_t dispatchTimeClockTicks = 0;
 
     /* Decide whether to schedule the next command or not. */
     if (pNextCmd)
     {
-        if (RF_cmdQ.pCurrCmdFg)
-        {
-            ; /* Do nothing. */
+       /* Either no commands are active, and we will execute */
+       if (NULL == RF_cmdQ.pCurrCmdFg && NULL == RF_cmdQ.pCurrCmdBg)
+       {
+           doDispatchNow = true;
+       }
+       /* Or the current client wants to execute in the foreground on top of a background command */
+       else if (RF_cmdQ.pCurrCmdBg 
+                && (RF_cmdQ.pCurrCmdBg->pClient == pNextCmd->pClient)
+                && (pNextCmd->flags & RF_CMD_FG_CMD_FLAG))
+       {
+            /* Try to execute the foreground command. */
+            doDispatchNow = true;
+
+            /* Be sure that the background command is started within the RF core.
+                This is to avoid race condition. */
+            while ((RF_cmdQ.pCurrCmdBg->pOp->status == IDLE) ||
+                    (RF_cmdQ.pCurrCmdBg->pOp->status == PENDING));
         }
-        else if (RF_cmdQ.pCurrCmdBg)
-        {
-            if ((RF_cmdQ.pCurrCmdBg->pClient == pNextCmd->pClient)
-                 && (pNextCmd->flags & RF_CMD_FG_CMD_FLAG))
-            {
-                /* Be sure that the background command is started within the RF core.
-                   This is to avoid race condition. */
-                while ((RF_cmdQ.pCurrCmdBg->pOp->status == IDLE) ||
-                       (RF_cmdQ.pCurrCmdBg->pOp->status == PENDING));
-
-                /* Try to execute the foreground command. */
-                doDispatchNow = true;
-            }
-            else
-            {
-                /* The command which we calculated the remained timing upon. It is the
-                   first command having an absolute start time, and can locate anywhere
-                   in the queue. */
-                RF_Cmd* pAbsCmd = NULL;
-
-                /* Calculate the timestamp of the next command in the command queue. */
-                uint32_t dispatchTimeClockTicks;
-                bool validTime = RF_cmdDispatchTime(&dispatchTimeClockTicks, true, &pAbsCmd);
-
-                if (validTime)
-                {
-                    /* There is a conflict identified with the running command. */
-                    if (dispatchTimeClockTicks == 0)
-                    {
-                        /* Invoke the registered hook to resolve the conflict. */
-                        if(RFCC26XX_schedulerPolicy.conflictHook)
-                        {
-                            /* Invoke the conflit hook to determine what action we shall take. */
-                            RF_Conflict conflict =
-                                RFCC26XX_schedulerPolicy.conflictHook(RF_cmdQ.pCurrCmdBg,
-                                                                      RF_cmdQ.pCurrCmdFg,
-                                                                      &RF_cmdQ.pPend,
-                                                                      &RF_cmdQ.pDone);
-
-                            /* Handle the conflict. */
-                            if (conflict == RF_ConflictAbort)
-                            {
-                                RF_abortCmd(RF_cmdQ.pCurrCmdBg->pClient, RF_cmdQ.pCurrCmdBg->ch, false, true, true);
-                            }
-                            else if (conflict == RF_ConflictReject)
-                            {
-                                RF_abortCmd(pAbsCmd->pClient, pAbsCmd->ch, false, false, true);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        /* The conflict is in the future, and might resolve naturarly.
-                           Revisit the issue again before the execution should start. */
-                        RF_restartClockTimeout(&RF_clkPowerUpObj, dispatchTimeClockTicks);
-                    }
-                }
-            }
-        }
+        /* Or there is conflict. */
         else
         {
-            /* The RF core is available, dispatch the next command. */
-            doDispatchNow = true;
+            /* By default let current command finish. */
+            doDispatchNow = false;
         }
     }
     else
@@ -2140,8 +2123,70 @@ static void RF_dispatchNextCmd(void)
         SwiP_or(&RF_swiFsmObj, RF_FsmEventLastCommandDone);
     }
 
-    /* We need to evaluate and handle the next command. */
-    if (doDispatchNow)
+    /* 
+     * Calculate the timestamp of the next command in the command queue.
+     * `conflict` parameter (here opposite of doDistpatch) implicitly used to determine margin needed to execute incoming command.
+     */
+    if (pNextCmd && (validTime = RF_cmdDispatchTime(&dispatchTimeClockTicks, !doDispatchNow, &pConflictCmd)))
+    {
+        /* If there is a conflict, but there is time left  */
+        if (!doDispatchNow && dispatchTimeClockTicks > 0)
+        {
+            /* The conflict is in the future, and might resolve naturally.
+               Revisit the issue again before the execution should start. */
+            RF_restartClockTimeout(&RF_clkPowerUpObj, dispatchTimeClockTicks);
+
+            /* Set pNext to NULL to avoid calling the hook until we revisit. */
+            pNextCmd = NULL;
+        }
+    }
+
+    /* Invoke the registered hook to get a final decision if there is still one to be made */
+    if(pNextCmd && RFCC26XX_schedulerPolicy.executeHook && validTime && (0 == dispatchTimeClockTicks))
+    {
+        /* Invoke the conflit hook to determine what action we shall take. */
+        RF_ExecuteAction action =
+            RFCC26XX_schedulerPolicy.executeHook(RF_cmdQ.pCurrCmdBg,
+                                                 RF_cmdQ.pCurrCmdFg,
+                                                 &RF_cmdQ.pPend,
+                                                 &RF_cmdQ.pDone,
+                                                 !doDispatchNow,
+                                                 pConflictCmd);
+
+        switch (action)
+        {
+            case RF_ExecuteActionAbortOngoing:
+            {
+                RF_abortCmd(RF_cmdQ.pCurrCmdBg->pClient, RF_cmdQ.pCurrCmdBg->ch, false, true, true);
+                /* Do not dispatch now, wait for abort to complete, then reschedule */
+                doDispatchNow = false;
+            }
+            break;
+
+            case RF_ExecuteActionRejectIncoming:
+            {
+                RF_Cmd *abortCmd = pConflictCmd ? pConflictCmd : pNextCmd;
+                RF_abortCmd(abortCmd->pClient, abortCmd->ch, false, false, true);
+                /* Do not dispatch now, wait for abort to complete, then reschedule */
+                doDispatchNow = false;
+            }
+            break;
+
+            case RF_ExecuteActionNone:
+            default:
+            {
+                /* 
+                 * Ignore command if conflict, and pick it up after current finishes.
+                 * If no conflict, dispatch.
+                 */
+                ;
+            }
+            break;
+        }
+    }
+
+    /* We need to evaluate and handle the next command. Check pointer for static analysis. */
+    if (doDispatchNow && pNextCmd)
     {
         if (pNextCmd->pClient != RF_currClient)
         {
@@ -2150,10 +2195,6 @@ static void RF_dispatchNextCmd(void)
         }
         else
         {
-            /* Calculate the timestamp of the next command in the command queue. */
-            uint32_t dispatchTimeClockTicks;
-            bool validTime = RF_cmdDispatchTime(&dispatchTimeClockTicks, false, NULL);
-
             /* Dispatch command in the future */
             if (validTime && dispatchTimeClockTicks && !RF_cmdQ.pCurrCmdBg && !RF_cmdQ.pCurrCmdFg)
             {
@@ -2185,6 +2226,9 @@ static void RF_dispatchNextCmd(void)
                 /* Decode the radio operation itself. */
                 RF_Op* pOp = (RF_Op*)pNextCmd->pOp;
 
+                /* Invoke global callback to indicate start of command chain */
+                RF_invokeGlobalCallback(RF_GlobalEventCmdStart, (void*)pNextCmd);
+                
                 /* Send the radio operation to the RF core. */
                 RFCDoorbellSendTo((uint32_t)pOp);
 
@@ -2428,6 +2472,9 @@ static void RF_hwiCpe0Active(uintptr_t a)
                 RFCCpeIntDisable((uint32_t)((*ppActiveCmd)->bmEvent & ~(RFC_DBELL_RFCPEIFG_LAST_COMMAND_DONE_M | RFC_DBELL_RFCPEIEN_IRQ14_M)));
                 RFCHwIntDisable((uint32_t) ((*ppActiveCmd)->bmEvent >> RF_SHIFT_32_BITS));
 
+                /* Invoke global callback to indicate end of command chain */
+                RF_invokeGlobalCallback(RF_GlobalEventCmdStop, (void*)(*ppActiveCmd));
+
                 /* Move active command to done queue. */
                 List_put(&RF_cmdQ.pDone, (List_Elem*)(*ppActiveCmd));
 
@@ -2459,6 +2506,53 @@ static void RF_hwiCpe0Active(uintptr_t a)
 
     /* Dispatch the next pending command if exists. */
     RF_dispatchNextCmd();
+}
+
+/*
+ *  Temperature limit notification function.
+ */
+static void RF_hposcRfCompensateFxn(int16_t currentTemperature,
+                                    int16_t thresholdTemperature,
+                                    uintptr_t clientArg,
+                                    Temperature_NotifyObj *NotifyObj)
+{
+    int32_t relFreqOffset;
+    int16_t relFreqOffsetConverted;
+    int_fast16_t status;
+
+    /* Check if HPOSC frequency offset has changed */
+    relFreqOffset = OSC_HPOSCRelativeFrequencyOffsetGet(currentTemperature);
+    if (relFreqOffset != RF_currentHposcFreqOffset)
+    {
+        /* Frequency offset has changed. Compensation is required */
+        RF_currentHposcFreqOffset = relFreqOffset;
+        relFreqOffsetConverted = OSC_HPOSCRelativeFrequencyOffsetToRFCoreFormatConvert(relFreqOffset);
+
+        /* Check if radio is powered */
+        if ((RF_core.status == RF_CoreStatusActive) || (RF_core.status == RF_CoreStatusPhySwitching))
+        {
+            /* Radio is powered. Check if any actively running command */
+            if (RF_cmdQ.pCurrCmdBg || RF_cmdQ.pCurrCmdFg)
+            {
+                /* Command is running. Abort command and assure that both RF_EventCmdAborted and RF_EventCmdPreemptrf events are set */
+                RF_abortCmd(RF_cmdQ.pCurrCmdBg->pClient, RF_cmdQ.pCurrCmdBg->ch, false, false, true);
+            }
+
+            /* Update RFCore with the HPOSC frequency offset */
+            RF_runDirectImmediateCmd(RF_currClient, CMDR_DIR_CMD_2BYTE(CMD_UPDATE_HPOSC_FREQ, relFreqOffsetConverted), NULL);
+        }
+    }
+
+    /* Register the notification again with updated thresholds */
+    status = Temperature_registerNotifyRange(NotifyObj,
+                                             currentTemperature + RF_TEMP_LIMIT_3_DEGREES_CELSIUS,
+                                             currentTemperature - RF_TEMP_LIMIT_3_DEGREES_CELSIUS,
+                                             RF_hposcRfCompensateFxn,
+                                             (uintptr_t)NULL);
+
+    if (status != Temperature_STATUS_SUCCESS) {
+        while(1);
+    }
 }
 
 /*
@@ -2782,7 +2876,7 @@ static void RF_setInactivityTimeout(void)
     else if (inactivityTimeUs != SemaphoreP_WAIT_FOREVER)
     {
         /* Reprogram and start inactivity timer */
-        RF_restartClockTimeout(&RF_clkInactivityObj, inactivityTimeUs/ClockP_tickPeriod);
+        RF_restartClockTimeout(&RF_clkInactivityObj, inactivityTimeUs/ClockP_getSystemTickPeriod());
     }
 }
 
@@ -2812,18 +2906,27 @@ static void RF_radioOpDoneCb(void)
         if (pCmd->pCb)
         {
             /* If any of the cancel events are set, mask out the other events. */
-            RF_EventMask exclusiveEvents = (RF_EventCmdCancelled
-                                            | RF_EventCmdAborted
-                                            | RF_EventCmdStopped
-                                            | RF_EventCmdPreempted);
+            RF_EventMask abortMask = (RF_EventCmdCancelled
+                                      | RF_EventCmdAborted
+                                      | RF_EventCmdStopped
+                                      | RF_EventCmdPreempted);
 
             /* Mask out the other events if any of the above is set. */
-            if (events & exclusiveEvents)
+            if (events & abortMask)
             {
-                events &= exclusiveEvents;
+                RF_EventMask nonTerminatingEvents = events & ~(abortMask | RF_EventCmdDone | RF_EventLastCmdDone |
+                                                               RF_EventLastFGCmdDone | RF_EventFGCmdDone);
+                if (nonTerminatingEvents)
+                {
+                    /* Invoke the user callback with any pending non-terminating events, since bare abort will follow */
+                    pCmd->pCb(pCmd->pClient, pCmd->ch, nonTerminatingEvents);
+                }
+
+                /* Mask out the other events if any of the above is set. */
+                events &= abortMask;
             }
 
-            /* Invoke the use callback */
+            /* Invoke the user callback */
             pCmd->pCb(pCmd->pClient, pCmd->ch, events);
         }
 
@@ -3109,7 +3212,7 @@ static void RF_fsmXOSCState(RF_Object *pObj, RF_FsmEvent e)
         else
         {
             /* Clock source not yet switched to XOSC_HF: schedule new polling */
-            RF_restartClockTimeout(&RF_clkPowerUpObj, RF_XOSC_HF_SWITCH_CHECK_PERIOD_US/ClockP_tickPeriod);
+            RF_restartClockTimeout(&RF_clkPowerUpObj, RF_XOSC_HF_SWITCH_CHECK_PERIOD_US/ClockP_getSystemTickPeriod());
         }
     }
 }
@@ -3558,11 +3661,16 @@ static void RF_init(void)
     ClockP_construct(&RF_clkPowerUpObj, &RF_clkPowerUp, 0, NULL);
     ClockP_construct(&RF_clkInactivityObj, &RF_clkInactivityCallback, 0, NULL);
 
-    /* Subscribe to wakeup notification from the Power driver */
-    Power_registerNotify(&RF_wakeupNotifyObj,                     /* Object to register */
-                         PowerCC26XX_AWAKE_STANDBY,               /* Event the notification to be invoked upon */
-                         (Power_NotifyFxn) RF_wakeupNotification, /* Function to be invoked */
-                         (uintptr_t) NULL);                       /* Parameters */
+    /* If TCXO is selected in CCFG, the RF Driver must not be allowed to control
+       the XOSC switching by subscribing to wakeup notification from the Power driver. */
+    if (CCFGRead_XOSC_FREQ() != CCFGREAD_XOSC_FREQ_TCXO)
+    {
+        /* Subscribe to wakeup notification from the Power driver */
+        Power_registerNotify(&RF_wakeupNotifyObj,                     /* Object to register */
+                             PowerCC26XX_AWAKE_STANDBY,               /* Event the notification to be invoked upon */
+                             (Power_NotifyFxn) RF_wakeupNotification, /* Function to be invoked */
+                             (uintptr_t) NULL);                       /* Parameters */
+    }
 
     /* Set the XOSC_HF dependency if the HW attributes say so. This will ensure
        that the XOSC_HF is turned on by the power driver as soon as possible when
@@ -3589,6 +3697,9 @@ static void RF_init(void)
 
     /* Set FSM state to power up */
     RF_core.fxn = RF_fsmPowerUpState;
+
+    /* Invoke the board file init function. */
+    RF_invokeGlobalCallback(RF_GlobalEventInit, NULL);
 }
 
 /*
@@ -3786,7 +3897,7 @@ static RF_Stat RF_abortCmd(RF_Handle h, RF_CmdHandle ch, bool graceful, bool flu
 
     /* Return with the result:
      - RF_StatSuccess if at least one command was cancelled.
-     - RF_StatCmdEnded, when the command already finished.
+     - RF_StatCmdEnded, when the command already finished (in the Done Q, but not deallocated yet).
      - RF_StatInvalidParamsError otherwise.  */
     return(status);
 }
@@ -3994,7 +4105,7 @@ static void RF_detachOverrides(uint32_t* baseOverride, uint32_t* newOverride)
 static bool RF_decodeOverridePointers(RF_RadioSetup* radioSetup, uint16_t** pTxPower, uint32_t** pRegOverride, uint32_t** pRegOverrideTxStd, uint32_t** pRegOverrideTx20)
 {
     /* Decode if High Gain PA is even available. */
-    bool tx20FeatureAvailable = (ChipInfo_GetChipType() == CHIP_TYPE_CC1352P);
+    bool tx20FeatureAvailable = (ChipInfo_GetChipType() == CHIP_TYPE_CC1352P) || (ChipInfo_GetChipType() == CHIP_TYPE_CC2652P);
 
     /* Only decode the offset of those fields which exist on this device. */
     if (tx20FeatureAvailable)
@@ -4005,7 +4116,7 @@ static bool RF_decodeOverridePointers(RF_RadioSetup* radioSetup, uint16_t** pTxP
         uint8_t index;
 
         /* Decode the offset of txPower field and all the override pointers
-           available on the CC1352P device. */
+           available on the CC1352P/CC2652P devices. */
         switch (radioSetup->commandId.commandNo)
         {
             case (CMD_RADIO_SETUP):
@@ -4153,18 +4264,13 @@ static void RF_updateHpOscOverride(uint32_t *pRegOverride)
         if (index < RF_OVERRIDE_SEARCH_DEPTH)
         {
             /* Get temperature dependent HPOSC frequency offset */
-            tempDegC = AONBatMonTemperatureGetDegC();
+            tempDegC = Temperature_getTemperature();
             relFreqOffset = OSC_HPOSCRelativeFrequencyOffsetGet(tempDegC);
+            RF_currentHposcFreqOffset = relFreqOffset;
             relFreqOffsetConverted = OSC_HPOSCRelativeFrequencyOffsetToRFCoreFormatConvert(relFreqOffset);
 
             /* Update override with the HPOSC frequency offset */
             pRegOverride[index] = HPOSC_OVERRIDE(relFreqOffsetConverted);
-
-            /* Adjust the RTC increment if the LF clock is derived from the HF clock of the HPOSC */
-            if(OSC_IsHPOSCEnabledWithHfDerivedLfClock())
-            {
-                OSC_HPOSCRtcCompensate(relFreqOffset);
-            }
         }
     }
     else
@@ -4200,7 +4306,7 @@ static RF_Stat RF_updatePaConfiguration(RF_RadioSetup* radioSetup, RF_TxPowerTab
     /* The new value requires the deault PA. */
     if (newValue.paType == RF_TxPowerTable_DefaultPA)
     {
-        /* On CC1352P devices with the correct override lists. */
+        /* On CC1352P/CC2652P devices with the correct override lists. */
         if (tx20FeatureAvailable && pRegOverrideTxStd && pRegOverrideTx20)
         {
             /* Store the new value in the setup command. */
@@ -4218,7 +4324,7 @@ static RF_Stat RF_updatePaConfiguration(RF_RadioSetup* radioSetup, RF_TxPowerTab
         }
         else if (tx20FeatureAvailable)
         {
-            /* Limited backward compatibility on CC1352P devices without the
+            /* Limited backward compatibility on CC1352P/CC2652P devices without the
                proper override lists. Only gain tuning on the Default PA is available. */
             if (*pTxPower != RF_TX20_ENABLED)
             {
@@ -4247,7 +4353,7 @@ static RF_Stat RF_updatePaConfiguration(RF_RadioSetup* radioSetup, RF_TxPowerTab
     }
     else
     {
-        /* On CC1352P devices with the correct override lists. */
+        /* On CC1352P/CC2652P devices with the correct override lists. */
         if (tx20FeatureAvailable && pRegOverrideTxStd && pRegOverrideTx20)
         {
             /* If the High Gain PA is available store the escape value in the setup
@@ -4266,7 +4372,7 @@ static RF_Stat RF_updatePaConfiguration(RF_RadioSetup* radioSetup, RF_TxPowerTab
         }
         else if (tx20FeatureAvailable)
         {
-            /* Limited backward compatibility on CC1352P devices without the
+            /* Limited backward compatibility on CC1352P/CC2652P devices without the
                proper override lists. Only gain tuning on the High PA is available
                if the gain override is present within the base override list.*/
             if (RF_searchAndReplacePAOverride(pRegOverride, RF_TX20_PATTERN, newValue.rawValue) == RF_TX_OVERRIDE_INVALID_OFFSET)
@@ -4358,6 +4464,7 @@ RF_Handle RF_open(RF_Object *pObj, RF_Mode* pRfMode, RF_RadioSetup* pRadioSetup,
         pObj->clientConfig.nClientEventMask        = params->nClientEventMask;
         pObj->clientConfig.nPowerUpDurationMargin  = params->nPowerUpDurationMargin;
         pObj->clientConfig.bUpdateSetup            = true;
+        pObj->clientConfig.nID                     = params->nID;
 
         /* Decide if automatic adjustment should be used. */
         if (params->nPowerUpDuration)
@@ -4497,6 +4604,12 @@ void RF_close(RF_Handle h)
             ClockP_destruct(&RF_clkPowerUpObj);
             ClockP_destruct(&RF_clkInactivityObj);
 
+            /* Unregister temperature notify object if SW TCXO functionality is enabled. */
+            if(pfnTemperatureUnregisterNotify != NULL)
+            {
+                pfnTemperatureUnregisterNotify(&RF_hposcRfCompNotifyObj);
+            }
+
             /* Unregister the wakeup notify callback */
             Power_unregisterNotify(&RF_wakeupNotifyObj);
 
@@ -4535,7 +4648,7 @@ uint32_t RF_getCurrentTime(void)
     uint32_t key = HwiP_disable();
 
     /* If radio is active, read the RAT */
-    if (RF_core.status == RF_CoreStatusActive)
+    if ((RF_core.status == RF_CoreStatusActive) || (RF_core.status == RF_CoreStatusPhySwitching))
     {
         /* Read the RAT timer through register access */
         nCurrentTime = RF_ratGetValue();
@@ -4583,7 +4696,7 @@ RF_CmdHandle RF_postCmd(RF_Handle h, RF_Op* pOp, RF_Priority ePri, RF_Callback p
     /* Try to allocate container */
     RF_Cmd* pCmd = RF_cmdAlloc();
 
-    /* If allocation failed */
+    /* If allocation succeeded */
     if (pCmd)
     {
         /* Stop inactivity clock if running */
@@ -4593,14 +4706,30 @@ RF_CmdHandle RF_postCmd(RF_Handle h, RF_Op* pOp, RF_Priority ePri, RF_Callback p
         RF_cmdQ.nSeqPost = (RF_cmdQ.nSeqPost + 1) & N_CMD_MODMASK;
 
         /* Populate container with reset values */
-        pCmd->pOp     = pOp;
-        pCmd->ePri    = ePri;
-        pCmd->pCb     = pCb;
-        pCmd->ch      = RF_cmdQ.nSeqPost;
-        pCmd->pClient = h;
-        pCmd->bmEvent = (bmEvent | RFC_DBELL_RFCPEIFG_LAST_COMMAND_DONE_M) & ~RF_INTERNAL_IFG_MASK;
-        pCmd->pastifg = 0;
-        pCmd->flags   = RF_CMD_ALLOC_FLAG;
+        pCmd->pOp          = pOp;
+        pCmd->ePri         = ePri;
+        pCmd->pCb          = pCb;
+        pCmd->ch           = RF_cmdQ.nSeqPost;
+        pCmd->pClient      = h;
+        pCmd->bmEvent      = (bmEvent | RFC_DBELL_RFCPEIFG_LAST_COMMAND_DONE_M) & ~RF_INTERNAL_IFG_MASK;
+        pCmd->pastifg      = 0;
+        pCmd->flags        = RF_CMD_ALLOC_FLAG;
+        pCmd->endTime      = 0;
+        pCmd->endType      = RF_EndNotSpecified;
+        pCmd->startTime    = 0;
+        pCmd->startType    = RF_StartNotSpecified;
+        pCmd->allowDelay   = RF_AllowDelayAny;
+        pCmd->duration     = 0;
+        pCmd->activityInfo = 0;
+        pCmd->coexPriority = RF_PriorityCoexDefault;
+        pCmd->coexRequest  = RF_RequestCoexDefault;
+
+        /* Update start time if absolute start time present in radio operation. */
+        if (pOp->startTrigger.triggerType == TRIG_ABSTIME)
+        {
+            pCmd->startType = RF_StartAbs;
+            pCmd->startTime = pOp->startTime;
+        }
 
         /* Cancel ongoing yielding */
         h->state.bYielded = false;
@@ -4635,9 +4764,15 @@ void RF_ScheduleCmdParams_init(RF_ScheduleCmdParams *pSchParams)
     DebugP_assert(pSchParams != NULL);
 
     /* Set the configuration to use the default values. */
-    pSchParams->priority   = RF_PriorityNormal;
-    pSchParams->endTime    = 0;
-    pSchParams->allowDelay = RF_AllowDelayAny;
+    pSchParams->startTime    = 0;
+    pSchParams->startType    = RF_StartNotSpecified;
+    pSchParams->allowDelay   = RF_AllowDelayAny;
+    pSchParams->endTime      = 0;
+    pSchParams->endType      = RF_EndNotSpecified;
+    pSchParams->duration     = 0;
+    pSchParams->activityInfo = 0;
+    pSchParams->coexPriority = RF_PriorityCoexDefault;
+    pSchParams->coexRequest  = RF_RequestCoexDefault;
 }
 
 /*
@@ -4698,28 +4833,41 @@ RF_CmdHandle RF_scheduleCmd(RF_Handle h, RF_Op* pOp, RF_ScheduleCmdParams *pSchP
             RF_cmdQ.nSeqPost = (RF_cmdQ.nSeqPost + 1) & N_CMD_MODMASK;
 
             /* Cache meta-data. */
-            pCmd->pOp        = pOp;
-            pCmd->ePri       = pSchParams->priority;
-            pCmd->pCb        = pCb;
-            pCmd->ch         = RF_cmdQ.nSeqPost;
-            pCmd->pClient    = h;
-            pCmd->bmEvent    = bmEvent & ~RF_INTERNAL_IFG_MASK;
-            pCmd->flags      = 0;
-            pCmd->pastifg    = 0;
-            pCmd->endTime    = RF_SCH_CMD_ENDTIME_IGNORE;
-            pCmd->startTime  = RF_SCH_CMD_STARTTIME_NOW;
-            pCmd->allowDelay = pSchParams->allowDelay;
+            pCmd->pOp          = pOp;
+            pCmd->ePri         = RF_PriorityNormal;
+            pCmd->pCb          = pCb;
+            pCmd->ch           = RF_cmdQ.nSeqPost;
+            pCmd->pClient      = h;
+            pCmd->bmEvent      = bmEvent & ~RF_INTERNAL_IFG_MASK;
+            pCmd->flags        = 0;
+            pCmd->pastifg      = 0;
+            pCmd->endTime      = pSchParams->endTime;
+            pCmd->endType      = pSchParams->endType;
+            pCmd->startTime    = pSchParams->startTime;
+            pCmd->startType    = pSchParams->startType;
+            pCmd->allowDelay   = pSchParams->allowDelay;
+            pCmd->duration     = pSchParams->duration;
+            pCmd->activityInfo = pSchParams->activityInfo;
+            pCmd->coexPriority = pSchParams->coexPriority;
+            pCmd->coexRequest  = pSchParams->coexRequest;
 
             /* Update the default endTime based on the scheduling parameters. */
-            if (pSchParams->endTime)
+            if (pSchParams->endType == RF_EndNotSpecified)
             {
-                pCmd->endTime = pSchParams->endTime;
+                if (pSchParams->endTime != 0)
+                {
+                    pCmd->endType = RF_EndAbs;
+                }
             }
 
             /* Update the default startTime based on the command parameters. */
-            if (pOp->startTrigger.triggerType == TRIG_ABSTIME)
+            if (pSchParams->startType == RF_StartNotSpecified)
             {
-                pCmd->startTime = pOp->startTime;
+                if (pOp->startTrigger.triggerType == TRIG_ABSTIME)
+                {
+                    pCmd->startType = RF_StartAbs;
+                    pCmd->startTime = pOp->startTime;
+                }
             }
 
             /* Find the last radio operation within the chain. */
@@ -4793,7 +4941,8 @@ RF_CmdHandle RF_scheduleCmd(RF_Handle h, RF_Op* pOp, RF_ScheduleCmdParams *pSchP
                 h->state.bYielded = false;
 
                 /* Trigger dispatcher if the timings need to be reconsidered. */
-                if (List_head(&RF_cmdQ.pPend) == (List_Elem*)pCmd)
+                if ((List_head(&RF_cmdQ.pPend) == (List_Elem*)pCmd) ||
+                    (pCmd->pOp->startTrigger.triggerType == TRIG_ABSTIME))
                 {
                     RF_dispatchNextEvent();
                 }
@@ -5080,11 +5229,6 @@ int8_t RF_getRssi(RF_Handle h)
  */
 RF_Stat RF_getInfo(RF_Handle h, RF_InfoType type, RF_InfoVal *pValue)
 {
-    /* Local variables */
-    int8_t i = 0;
-    RF_Cmd* pCmd;
-    RF_ScheduleMapElement *pScheduleMap;
-
     /* Prepare the default status value */
     RF_Stat status = RF_StatSuccess;
 
@@ -5128,79 +5272,6 @@ RF_Stat RF_getInfo(RF_Handle h, RF_InfoType type, RF_InfoVal *pValue)
             /* Copy the phy switching times to the RF_InfoVal structure */
             pValue->phySwitchingTimeInUs[0] = RF_Sch.clientHnd[0] ? RF_Sch.clientHnd[0]->clientConfig.nPhySwitchingDuration : 0;
             pValue->phySwitchingTimeInUs[1] = RF_Sch.clientHnd[1] ? RF_Sch.clientHnd[1]->clientConfig.nPhySwitchingDuration : 0;
-            break;
-
-        case RF_GET_SCHEDULE_MAP:
-            /* Get scheduler timing map. This can be used to determine the recent
-               time slots which are occupied by posted commands; and can help to
-               find out if a command can be inserted to the queue or not. In dual-mode
-               applications, this can help to sync the two protocol. */
-            pScheduleMap = (RF_ScheduleMapElement *)pValue->pScheduleMap;
-            memset(pScheduleMap, 0, sizeof(RF_ScheduleMapElement) * RF_NUM_SCHEDULE_MAP_ENTRIES);
-
-            for (i = 0; i < RF_NUM_SCHEDULE_ACCESS_ENTRIES; i++)
-            {
-                /* Copy access request info to schedule map */
-                pScheduleMap[i].pClient    = RF_Sch.clientHnd[i];
-                pScheduleMap[i].priority   = RF_Sch.accReq[i].priority;
-                uint32_t startTime          = RF_Sch.accReq[i].startTime;
-                pScheduleMap[i].startTime  = startTime;
-                pScheduleMap[i].endTime    = startTime + RF_Sch.accReq[i].duration;
-            }
-
-            /* Check if there is current command running */
-            if (RF_cmdQ.pCurrCmdBg)
-            {
-                /* Copy current command info to schedule map */
-                pScheduleMap[i].pClient    = RF_cmdQ.pCurrCmdBg->pClient;
-                pScheduleMap[i].ch         = RF_cmdQ.pCurrCmdBg->ch;
-                pScheduleMap[i].priority   = RF_cmdQ.pCurrCmdBg->ePri;
-                pScheduleMap[i].startTime  = RF_cmdQ.pCurrCmdBg->startTime;
-                pScheduleMap[i].endTime    = RF_cmdQ.pCurrCmdBg->endTime;
-            }
-
-            /* Increment the index to ensure a fixed location for the background command. */
-            i++;
-
-            /* Check if there is current command running */
-            if (RF_cmdQ.pCurrCmdFg)
-            {
-                /* Copy current command info to schedule map */
-                pScheduleMap[i].pClient    = RF_cmdQ.pCurrCmdFg->pClient;
-                pScheduleMap[i].ch         = RF_cmdQ.pCurrCmdFg->ch;
-                pScheduleMap[i].priority   = RF_cmdQ.pCurrCmdFg->ePri;
-                pScheduleMap[i].startTime  = RF_cmdQ.pCurrCmdFg->startTime;
-                pScheduleMap[i].endTime    = RF_cmdQ.pCurrCmdFg->endTime;
-            }
-
-            /* Increment the index to ensure a fixed location for the foreground command. */
-            i++;
-
-            /* Check pending commands */
-            pCmd = (RF_Cmd*)List_head(&RF_cmdQ.pPend);
-
-            /* Loop until end of command queue or number of entries exceed */
-            while (pCmd)
-            {
-                if (i < RF_NUM_SCHEDULE_MAP_ENTRIES)
-                {
-                    /* Copy pending command info to schedule map */
-                    pScheduleMap[i].pClient   = pCmd->pClient;
-                    pScheduleMap[i].ch        = pCmd->ch;
-                    pScheduleMap[i].priority  = pCmd->ePri;
-                    pScheduleMap[i].startTime = pCmd->startTime;
-                    pScheduleMap[i].endTime   = pCmd->endTime;
-                    i++;
-                }
-                else
-                {
-                    /* Number of entries exceeded, get out of loop */
-                    break;
-                }
-
-                /* Walk the queue. */
-                pCmd = (RF_Cmd*)List_next((List_Elem*)pCmd);
-            }
             break;
 
         default:
@@ -5330,7 +5401,7 @@ RF_Stat RF_ratDisableChannel(RF_Handle h, RF_RatHandle ratHandle)
     RF_RatChannel* ratCh = RF_ratGetChannel(ratHandle);
 
     /* If the provided handler is valid. */
-    if (ratCh && ratCh->status)
+    if (ratCh && ratCh->status && (ratCh->pClient == h))
     {
         /* If the RF core is active, abort the RAT event. */
         if (RF_core.status == RF_CoreStatusActive)
@@ -5338,8 +5409,14 @@ RF_Stat RF_ratDisableChannel(RF_Handle h, RF_RatHandle ratHandle)
             /* Calculate the configuration field of command (the channel we disable). */
             uint16_t config = (uint16_t)(RF_RAT_CH_LOWEST + ratCh->handle) << RF_SHIFT_8_BITS;
 
-            /* Disable the channel within the RF core. */
-            status = RF_runDirectImmediateCmd(h, ((uint32_t)CMDR_DIR_CMD_2BYTE(CMD_DISABLE_RAT_CH, config)), NULL);
+            /* Disable the channel within the RF core.
+               It has been checked that RAT channel to be disabled is owned by the input handle h.
+               Call the function that executes the disabling with RF_currClient as input argument in
+               instead of h in order to force the function to accept the disable request. This is
+               required in the case where the client that will disable a RAT channel is not the same
+               client as currently controlling the radio.
+            */
+            status = RF_runDirectImmediateCmd(RF_currClient, ((uint32_t)CMDR_DIR_CMD_2BYTE(CMD_DISABLE_RAT_CH, config)), NULL);
 
             /* Free the container for further use. We do it after the direct command to be sure it is not powered down.
                This will implicitely schedule the next event and run the power management accordingly. */
@@ -5479,6 +5556,12 @@ RF_Stat RF_control(RF_Handle h, int8_t ctrl, void *args)
             RF_ratModule.availableRatChannels = *(uint8_t *)args;
             break;
 
+        case RF_CTRL_COEX_CONTROL:
+            /* Pass this request on to the dynamically generated board file
+               event handler */
+            RF_invokeGlobalCallback(RF_GlobalEventCoexControl, args);
+            break;
+
         default:
             /* Request can not be served */
             status = RF_StatInvalidParamsError;
@@ -5539,7 +5622,7 @@ RF_Stat RF_requestAccess(RF_Handle h, RF_AccessParams *pParams)
         RF_Sch.accReq[clientIdx].priority = pParams->priority;
 
         /* Start timeout of the request. */
-        RF_restartClockTimeout(&h->state.clkReqAccess, durationInUs/ClockP_tickPeriod);
+        RF_restartClockTimeout(&h->state.clkReqAccess, durationInUs/ClockP_getSystemTickPeriod());
 
         /* Set status to success after the access was granted. */
         status = RF_StatSuccess;
@@ -5710,5 +5793,38 @@ RF_TxPowerTable_Value RF_TxPowerTable_findValue(RF_TxPowerTable_Entry table[], i
                maximum value in the table. */
             return(table[i-1].value);
         }
+    }
+}
+
+/*
+ *  ======== RF_enableHPOSCTemperatureCompensation ========
+ * Initializes the temperature compensation monitoring (SW TCXO)
+ * This function enables RF synthesizer temperature compensation
+ * It is intended for use on the SIP or BAW devices where compensation 
+ * coefficients are available inside the chip.
+ * 
+ * The name of the function is a misnomer, as it does not only apply to 
+ * HPOSC (BAW) configuration, but will generically enable SW TCXO.
+ */
+void RF_enableHPOSCTemperatureCompensation(void)
+{
+    int_fast16_t status;
+
+    Temperature_init();
+
+    int16_t currentTemperature = Temperature_getTemperature();
+    
+    status = Temperature_registerNotifyRange(&RF_hposcRfCompNotifyObj,
+                                                currentTemperature + RF_TEMP_LIMIT_3_DEGREES_CELSIUS,
+                                                currentTemperature - RF_TEMP_LIMIT_3_DEGREES_CELSIUS,
+                                                RF_hposcRfCompensateFxn,
+                                                (uintptr_t)NULL);
+
+    pfnUpdateHposcOverride = &RF_updateHpOscOverride;
+    pfnTemperatureUnregisterNotify = &Temperature_unregisterNotify;
+
+    if (status != Temperature_STATUS_SUCCESS)
+    {
+        while(1);
     }
 }

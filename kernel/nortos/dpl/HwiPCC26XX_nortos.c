@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, Texas Instruments Incorporated
+ * Copyright (c) 2017-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -44,6 +44,7 @@
 #include DeviceFamily_constructPath(inc/hw_types.h)
 #include DeviceFamily_constructPath(inc/hw_cpu_scs.h)
 #include DeviceFamily_constructPath(inc/hw_ints.h)
+#include DeviceFamily_constructPath(driverlib/cpu.h)
 #include DeviceFamily_constructPath(driverlib/interrupt.h)
 #include DeviceFamily_constructPath(driverlib/rom.h)
 
@@ -220,6 +221,18 @@ static void HwiP_dispatch(void)
 void HwiP_enableInterrupt(int interruptNum)
 {
     IntEnable((uint32_t)interruptNum);
+}
+
+/*
+ *  ======== HwiP_interruptsEnabled ========
+ */
+bool HwiP_interruptsEnabled(void)
+{
+    uint32_t priMask;
+
+    priMask = CPUprimask();
+
+    return (priMask == 0);
 }
 
 /*

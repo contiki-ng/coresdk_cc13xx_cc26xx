@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2018, Texas Instruments Incorporated
+ * Copyright (c) 2015-2019, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -754,6 +754,26 @@ void GPTimerCC26XX_configureDebugStall(GPTimerCC26XX_Handle handle, GPTimerCC26X
     GPTimerCC26XX_HWAttrs const *hwAttrs = handle->hwAttrs;
     uint32_t timer = GPT_LUT[handle->timerPart].map;
     TimerStallControl(hwAttrs->baseAddr, timer, mode);
+}
+
+/*!
+ *  @brief  Set custom argument in GPTimerCC26XX_Object
+ */
+void GPTimerCC26XX_setArg(GPTimerCC26XX_Handle handle, void *arg)
+{
+    GPTimerCC26XX_Object *object = handle->object;
+    object->arg = (uint32_t)arg;
+}
+
+/*!
+ *  @brief  Get custom argument in GPTimerCC26XX_Object
+ */
+uint32_t GPTimerCC26XX_getArg(GPTimerCC26XX_Handle handle)
+{
+    GPTimerCC26XX_Object *object = handle->object;
+
+    return ((uint32_t) object->arg);
+
 }
 
 /*!

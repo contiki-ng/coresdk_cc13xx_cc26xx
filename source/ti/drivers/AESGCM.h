@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019, Texas Instruments Incorporated
+ * Copyright (c) 2018-2020, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,8 +34,6 @@
  * @file       AESGCM.h
  *
  * @brief      AESGCM driver header
- *
- * @warning     This is a beta API. It may change in future releases.
  *
  * @anchor ti_drivers_AESGCM_Overview
  * ### Overview #
@@ -151,8 +149,8 @@
  * operation.input             = plaintext;
  * operation.output            = ciphertext;
  * operation.inputLength       = sizeof(plaintext);
- * operation.nonce             = nonce;
- * operation.nonceLength       = sizeof(nonce);
+ * operation.iv                = iv;
+ * operation.ivLength          = sizeof(iv);
  * operation.mac               = mac;
  * operation.macLength         = sizeof(mac);
  *
@@ -371,9 +369,28 @@ extern "C" {
 #define AESGCM_STATUS_CANCELED (-4)
 
 /*!
+ *  @brief AESGCM Global configuration
+ *
+ *  The AESGCM_Config structure contains a set of pointers used to characterize
+ *  the AESGCM driver implementation.
+ *
+ *  This structure needs to be defined before calling AESGCM_init() and it must
+ *  not be changed thereafter.
+ *
+ *  @sa     AESGCM_init()
+ */
+typedef struct {
+    /*! Pointer to a driver specific data object */
+    void               *object;
+
+    /*! Pointer to a driver specific hardware attributes structure */
+    void         const *hwAttrs;
+} AESGCM_Config;
+
+/*!
  *  @brief  A handle that is returned from an AESGCM_open() call.
  */
-typedef struct AESGCM_Config    *AESGCM_Handle;
+typedef AESGCM_Config *AESGCM_Handle;
 
 /*!
  * @brief   The way in which GCM function calls return after performing an
@@ -483,25 +500,6 @@ typedef enum {
 } AESGCM_OperationType;
 
 /*!
- *  @brief AESGCM Global configuration
- *
- *  The AESGCM_Config structure contains a set of pointers used to characterize
- *  the AESGCM driver implementation.
- *
- *  This structure needs to be defined before calling AESGCM_init() and it must
- *  not be changed thereafter.
- *
- *  @sa     AESGCM_init()
- */
-typedef struct AESGCM_Config {
-    /*! Pointer to a driver specific data object */
-    void               *object;
-
-    /*! Pointer to a driver specific hardware attributes structure */
-    void         const *hwAttrs;
-} AESGCM_Config;
-
-/*!
  *  @brief  The definition of a callback function used by the AESGCM driver
  *          when used in ::AESGCM_RETURN_BEHAVIOR_CALLBACK
  *
@@ -588,7 +586,7 @@ void AESGCM_Params_init(AESGCM_Params *params);
  *  @sa     AESGCM_init()
  *  @sa     AESGCM_close()
  */
-AESGCM_Handle AESGCM_open(uint_least8_t index, AESGCM_Params *params);
+AESGCM_Handle AESGCM_open(uint_least8_t index, const AESGCM_Params *params);
 
 /*!
  *  @brief  Function to close a GCM peripheral specified by the GCM handle
@@ -668,6 +666,31 @@ int_fast16_t AESGCM_oneStepDecrypt(AESGCM_Handle handle, AESGCM_Operation *opera
  *  @retval #AESCBC_STATUS_ERROR                 The operation was not canceled.
  */
 int_fast16_t AESGCM_cancelOperation(AESGCM_Handle handle);
+
+/**
+ *  @brief  Constructs a new AESGCM object
+ *
+ *  Unlike #AESGCM_open(), #AESGCM_construct() does not require the hwAttrs and
+ *  object to be allocated in a #AESGCM_Config array that is indexed into.
+ *  Instead, the #AESGCM_Config, hwAttrs, and object can be allocated at any
+ *  location. This allows for relatively simple run-time allocation of temporary
+ *  driver instances on the stack or the heap.
+ *  The drawback is that this makes it more difficult to write device-agnostic
+ *  code. If you use an ifdef with DeviceFamily, you can choose the correct
+ *  object and hwAttrs to allocate. That compilation unit will be tied to the
+ *  device it was compiled for at this point. To change devices, recompilation
+ *  of the application with a different DeviceFamily setting is necessary.
+ *
+ *  @param  config #AESGCM_Config describing the location of the object and hwAttrs.
+ *
+ *  @param  params #AESGCM_Params to configure the driver instance.
+ *
+ *  @return        Returns a #AESGCM_Handle on success or NULL on failure.
+ *
+ *  @pre    The object struct @c config points to must be zeroed out prior to
+ *          calling this function. Otherwise, unexpected behavior may ensue.
+ */
+AESGCM_Handle AESGCM_construct(AESGCM_Config *config, const AESGCM_Params *params);
 
 #ifdef __cplusplus
 }

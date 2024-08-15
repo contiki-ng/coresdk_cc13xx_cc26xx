@@ -103,7 +103,7 @@
  *      NVS_Params nvsParams;
  *
  *      NVS_Params_init(&nvsParams);
- *      nvsRegion = NVS_open(Board_NVS0, &nvsParams);
+ *      nvsRegion = NVS_open(CONFIG_NVS0, &nvsParams);
  *  @endcode
  *
  *  @anchor ti_drivers_NVS_Examples_typical
@@ -131,11 +131,11 @@
  *
  *      //
  *      // Open the NVS region specified by the 0th element in the NVS_config[]
- *      // array defined in Board.c.
+ *      // array defined in ti_drivers_config.c.
  *      //
  *      // Use default NVS_Params to open this memory region, hence 'NULL'
  *      //
- *      nvsRegion = NVS_open(Board_NVS0, NULL);
+ *      nvsRegion = NVS_open(CONFIG_NVS0, NULL);
  *
  *      // Confirm that the NVS region opened properly
  *      if (nvsRegion == NULL) {
@@ -196,8 +196,8 @@
  *
  *  ### NVS Driver Configuration #
  *
- *  In order to use the NVS APIs, the application is required
- *  to provide device-specific NVS configuration in the Board.c file.
+ *  In order to use the NVS APIs, the application is required to provide
+ *  device-specific NVS configuration in the ti_drivers_config.c file.
  *  The NVS driver interface defines a configuration data structure,
  *  #NVS_Config.
  *
@@ -211,7 +211,7 @@
  *
  *  You will need to check the device-specific NVS driver implementation's
  *  header file for example configuration.  Please also refer to the
- *  Board.c file of any of the provided examples to see the NVS configuration.
+ *  ti_drivers_config.c file of any of the examples to see the NVS configuration.
  *
  *  ### Initializing the NVS Driver #
  *
