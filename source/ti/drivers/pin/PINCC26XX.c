@@ -272,6 +272,27 @@ PIN_Status PIN_init(const PIN_Config pinConfig[]) {
             pinLowerBound = 5;
             reservedPinMask |= 0x1F;
             break;
+#if defined(DeviceFamily_CC13X2X7) || defined(DeviceFamily_CC26X2X7)
+        /* The x7 parts have the pin-outs of their CC13x2/CC26x2 namesakes.
+         * Without these cases a CC1312R7 (DIO1-DIO30) got DIO0-DIO29. */
+        case CHIP_TYPE_CC1312R7:
+            if (ChipInfo_GetPackageType() == PACKAGE_7x7) {
+                pinLowerBound = 1;
+                reservedPinMask |= 0x01;
+            }
+            break;
+        case CHIP_TYPE_CC1352R7:
+            pinLowerBound = 3;
+            reservedPinMask |= 0x07;
+            break;
+        case CHIP_TYPE_CC1352P7:
+        case CHIP_TYPE_CC2652P7:
+            pinLowerBound = 5;
+            reservedPinMask |= 0x1F;
+            break;
+#endif
+        default:
+            break;
     }
 
     if ((HWREG(CCFG_BASE + CCFG_O_MODE_CONF) & CCFG_MODE_CONF_SCLK_LF_OPTION_M) >> CCFG_MODE_CONF_SCLK_LF_OPTION_S == 0x1) {
