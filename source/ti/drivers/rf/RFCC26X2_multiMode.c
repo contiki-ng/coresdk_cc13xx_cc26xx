@@ -3995,11 +3995,12 @@ static bool RF_decodeOverridePointers(RF_RadioSetup* radioSetup, uint16_t** pTxP
 {
     /* Decode if High Gain PA is even available. */
     ChipType_t chipType = ChipInfo_GetChipType();
-    bool tx20FeatureAvailable = (chipType == CHIP_TYPE_CC1352P);
 #if defined(DeviceFamily_CC13X2X7) || defined(DeviceFamily_CC26X2X7)
-    tx20FeatureAvailable = tx20FeatureAvailable ||
-                           (chipType == CHIP_TYPE_CC1352P7) ||
-                           (chipType == CHIP_TYPE_CC2652P7);
+    /* The x7 driverlib runs only on x7 chips. */
+    bool tx20FeatureAvailable = (chipType == CHIP_TYPE_CC1352P7) ||
+                                (chipType == CHIP_TYPE_CC2652P7);
+#else
+    bool tx20FeatureAvailable = (chipType == CHIP_TYPE_CC1352P);
 #endif
 
     /* Only decode the offset of those fields which exist on this device. */
